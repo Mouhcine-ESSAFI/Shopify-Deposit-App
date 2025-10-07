@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = "prisma://accelerate.prisma-data.net/?api_key=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RfaWQiOjEsInNlY3VyZV9rZXkiOiJza19kYVN4SVJlR3FJWWxxaE1yanhpRlciLCJhcGlfa2V5IjoiMDFLNlpGNlJTQjk2ODU1NEZNTlhCWVdQOEQiLCJ0ZW5hbnRfaWQiOiJkYzk3NDg3MTE5YjQxMjQ5MWY3MDZjNzg5NmIzY2EyNzBiNWZmOTIzODZiYTJhNDY4NDU0OTg4YWI1Nzg0MDk1IiwiaW50ZXJuYWxfc2VjcmV0IjoiZTIwNDE4M2ItZGZiMS00ZWI3LWIzZTItZmUzNWQ4ZjI5OWZiIn0.8cKWyXLngJU34UggQkZRcx9kBsMuGQPaxAL7Yu3-sLU"
 }
 
 model Session {
