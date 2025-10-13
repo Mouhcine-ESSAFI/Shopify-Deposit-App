@@ -1,371 +1,451 @@
-# Shopify App Template - Remix
+# Shopify Deposit Payment App
 
-This is a template for building a [Shopify app](https://shopify.dev/docs/apps/getting-started) using the [Remix](https://remix.run) framework.
+A comprehensive Shopify app that enables merchants to offer deposit-based payment plans for their products, specifically designed for tour booking businesses. Customers pay a percentage upfront and the balance later, with manual collection control.
 
-Rather than cloning this repo, you can use your preferred package manager and the Shopify CLI with [these steps](https://shopify.dev/docs/apps/getting-started/create).
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Shopify](https://img.shields.io/badge/Shopify-API%202024--10-green.svg)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-Visit the [`shopify.dev` documentation](https://shopify.dev/docs/api/shopify-app-remix) for more details on the Remix app package.
+## 📋 Table of Contents
 
-## Quick start
+- [Features](#features)
+- [Technologies Used](#technologies-used)
+- [Architecture](#architecture)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [API Reference](#api-reference)
+- [Database Schema](#database-schema)
+- [Webhooks](#webhooks)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+
+## ✨ Features
+
+### Core Functionality
+
+- **Flexible Deposit Plans**: Create custom deposit payment plans with any percentage (1-99%)
+- **Manual Balance Collection**: Full control over when to charge the remaining balance
+- **Automated Order Tracking**: Webhooks automatically capture and track orders
+- **Processing Fee System**: Automatically add 3% processing fee when collecting balance
+- **Multi-Currency Support**: Configured for EUR with easy currency switching
+- **Real-time Status Updates**: Automatic status updates when payments are completed
+
+### Merchant Dashboard
+
+- **Selling Plans Management**: Create, edit, and delete deposit plans
+- **Order Management**: View and filter all deposit orders
+- **Advanced Search**: Search by order number, ID, or customer email
+- **Status Filtering**: Filter orders by payment status (Paid/Pending)
+- **Balance Collection**: One-click balance collection with confirmation prompts
+- **Product Assignment**: Assign selling plans to specific products
+
+### Customer Experience
+
+- **Transparent Pricing**: Clear breakdown of deposit and balance amounts at checkout
+- **Email Notifications**: Automated payment request emails
+- **Secure Payments**: All payments processed through Shopify's secure checkout
+- **Payment Flexibility**: Choose to pay balance via card or cash on tour day
+
+## 🛠 Technologies Used
+
+### Frontend
+
+- **Remix** (v2.x) - Full-stack React framework
+- **React** (v18.x) - UI library
+- **Shopify Polaris** (v12.x) - Shopify's design system
+  - Cards, Modals, Buttons, Forms
+  - ResourceList, Filters, Badges
+  - Layout components
+- **TypeScript** - Type-safe development
+
+### Backend
+
+- **Node.js** (v20.x) - Runtime environment
+- **Shopify App Remix** (v3.x) - Shopify app framework
+- **Shopify API** (v2024.10) - Latest Shopify Admin API
+  - GraphQL Admin API
+  - REST Admin API
+- **Prisma ORM** (v6.x) - Database toolkit
+- **SQLite** - Development database (production: PostgreSQL recommended)
+
+### Authentication & Security
+
+- **OAuth 2.0** - Shopify app authentication
+- **Session Storage** - Prisma-based session management
+- **Webhook Verification** - HMAC signature verification
+- **Access Scopes**:
+  - `write_products` - Product and variant management
+  - `write_orders` - Order editing and management
+  - `read_orders` - Order data retrieval
+  - `write_order_edits` - Balance collection functionality
+
+### API & Integrations
+
+- **GraphQL** - Primary API communication
+  - Selling Plans API
+  - Order Edit API
+  - Order Management API
+- **Webhooks**:
+  - `ORDERS_CREATE` - New order capture
+  - `ORDERS_PAID` - Payment completion tracking
+  - `ORDERS_UPDATED` - Order status changes
+
+### Development Tools
+
+- **Vite** - Build tool and dev server
+- **ESBuild** - JavaScript bundler
+- **Shopify CLI** - Development and deployment tool
+- **npm** - Package management
+- **Git** - Version control
+
+### Deployment
+
+- **Cloudflare Tunnel** - Local development tunneling
+- **Shopify App Store** distribution ready
+- Environment variable management
+
+## 🏗 Architecture
+
+### Application Structure
+
+```
+deposit-app/
+├── app/
+│   ├── routes/
+│   │   ├── app.selling-plans.tsx      # Selling plans management
+│   │   ├── app.orders.tsx             # Order management dashboard
+│   │   ├── webhooks.orders.create.tsx # New order webhook
+│   │   ├── webhooks.orders.paid.tsx   # Payment webhook
+│   │   └── webhooks.orders.updated.tsx # Order update webhook
+│   ├── models/
+│   │   ├── depositPlan.server.ts      # Deposit plan database operations
+│   │   └── depositOrder.server.ts     # Order database operations
+│   ├── db.server.ts                    # Database client
+│   └── shopify.server.ts               # Shopify configuration
+├── prisma/
+│   ├── schema.prisma                   # Database schema
+│   └── migrations/                     # Database migrations
+├── public/                             # Static assets
+└── package.json                        # Dependencies
+
+```
+
+### Data Flow
+
+1. **Order Creation**:
+   - Customer adds product with deposit plan to cart
+   - Pays deposit percentage at checkout
+   - `ORDERS_CREATE` webhook fires
+   - App captures order details and stores in database
+   - Order appears in merchant dashboard
+
+2. **Balance Collection**:
+   - Merchant clicks "Collect Balance + 3% Fee"
+   - Confirmation modal appears
+   - App adds processing fee line item to order
+   - Payment request email sent to customer
+   - Customer pays via Shopify checkout
+   - `ORDERS_PAID` webhook fires
+   - Order status automatically updated to "Paid"
+
+### Database Schema
+
+#### DepositPlan Table
+```prisma
+model DepositPlan {
+  id              String   @id @default(cuid())
+  shopDomain      String
+  sellingPlanId   String   @unique
+  sellingPlanGid  String
+  groupId         String
+  planName        String
+  merchantCode    String
+  description     String?
+  depositPercent  Float    @default(15.0)
+  balanceDueDays  Int      @default(365)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  orders          DepositOrder[]
+}
+```
+
+#### DepositOrder Table
+```prisma
+model DepositOrder {
+  id              String   @id @default(cuid())
+  shopDomain      String
+  orderId         String
+  orderGid        String
+  orderNumber     String?
+  customerId      String?
+  customerEmail   String?
+  depositAmount   Float
+  balanceAmount   Float
+  totalAmount     Float
+  depositPaid     Boolean  @default(true)
+  balancePaid     Boolean  @default(false)
+  balanceDueDate  DateTime
+  sellingPlanId   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  plan            DepositPlan?
+}
+```
+
+## 📦 Installation
 
 ### Prerequisites
 
-Before you begin, you'll need the following:
+- Node.js 20.x or higher
+- npm or yarn
+- Shopify Partner account
+- Shopify development store
 
-1. **Node.js**: [Download and install](https://nodejs.org/en/download/) it if you haven't already.
-2. **Shopify Partner Account**: [Create an account](https://partners.shopify.com/signup) if you don't have one.
-3. **Test Store**: Set up either a [development store](https://help.shopify.com/en/partners/dashboard/development-stores#create-a-development-store) or a [Shopify Plus sandbox store](https://help.shopify.com/en/partners/dashboard/managing-stores/plus-sandbox-store) for testing your app.
+### Step 1: Clone Repository
 
-### Setup
-
-If you used the CLI to create the template, you can skip this section.
-
-Using yarn:
-
-```shell
-yarn install
+```bash
+git clone https://github.com/Mouhcine-ESSAFI/shopify-deposit-app.git
+cd shopify-deposit-app
 ```
 
-Using npm:
+### Step 2: Install Dependencies
 
-```shell
+```bash
 npm install
 ```
 
-Using pnpm:
+### Step 3: Set Up Shopify App
 
-```shell
-pnpm install
+```bash
+npm run shopify app config link
 ```
 
-### Local Development
+### Step 4: Configure Environment Variables
 
-Using yarn:
+Create a `.env` file:
 
-```shell
-yarn dev
+```env
+SHOPIFY_API_KEY=your_api_key
+SHOPIFY_API_SECRET=your_api_secret
+SCOPES=write_products,write_orders,read_orders,write_order_edits
+SHOPIFY_APP_URL=https://your-tunnel-url.com
+DATABASE_URL="file:./dev.db"
 ```
 
-Using npm:
+### Step 5: Set Up Database
 
-```shell
+```bash
+npx prisma migrate dev
+npx prisma generate
+```
+
+### Step 6: Start Development Server
+
+```bash
 npm run dev
 ```
 
-Using pnpm:
+## ⚙️ Configuration
 
-```shell
-pnpm run dev
+### Selling Plan Configuration
+
+Default configuration for PRE_ORDER category:
+- **Balance Due Period**: 3650 days (10 years placeholder)
+- **Category**: PRE_ORDER (no automatic charging)
+- **Billing Trigger**: TIME_AFTER_CHECKOUT
+- **Delivery Trigger**: ASAP
+- **Inventory Policy**: Reserve on sale
+
+### Processing Fee Configuration
+
+Located in `app/routes/app.orders.tsx`:
+
+```typescript
+const processingFee = balanceAmount * 0.03; // 3% fee
 ```
 
-Press P to open the URL to your app. Once you click install, you can start development.
+To change the fee percentage, modify the `0.03` value.
 
-Local development is powered by [the Shopify CLI](https://shopify.dev/docs/apps/tools/cli). It logs into your partners account, connects to an app, provides environment variables, updates remote config, creates a tunnel and provides commands to generate extensions.
+### Currency Configuration
 
-### Authenticating and querying data
+Change currency in two places:
 
-To authenticate and query data you can use the `shopify` const that is exported from `/app/shopify.server.js`:
+1. `app/routes/app.orders.tsx`:
+```typescript
+currencyCode: "EUR" // Change to your currency
+```
 
-```js
-export async function loader({ request }) {
-  const { admin } = await shopify.authenticate.admin(request);
+2. Frontend formatting:
+```typescript
+currency: 'EUR' // Change to your currency
+```
 
-  const response = await admin.graphql(`
-    {
-      products(first: 25) {
-        nodes {
-          title
-          description
+## 📖 Usage
+
+### Creating a Deposit Plan
+
+1. Navigate to **Selling Plans** in the app
+2. Click **Create Selling Plan**
+3. Configure:
+   - Plan Name: "Tour Deposit Plan"
+   - Deposit Percentage: 15% (or custom)
+   - Description: Customer-facing description
+   - Merchant Code: Internal reference
+4. Click **Create Plan**
+5. Assign the plan to products
+
+### Assigning Plans to Products
+
+1. Click **Assign Products** on a selling plan
+2. Select products to enable deposit payments
+3. Customers will see the deposit option at checkout
+
+### Managing Orders
+
+1. Navigate to **Deposit Orders**
+2. Use search bar to find specific orders
+3. Filter by payment status
+4. View order details including:
+   - Deposit and balance amounts
+   - Customer information
+   - Payment status
+   - Order date and ID
+
+### Collecting Balance
+
+1. Find the order with pending balance
+2. Click **Collect Balance + 3% Fee**
+3. Review details in confirmation modal
+4. Confirm to send payment request
+5. Customer receives email with payment link
+6. Status updates automatically when paid
+
+## 🔌 API Reference
+
+### GraphQL Mutations Used
+
+#### Create Selling Plan
+```graphql
+mutation createDepositSellingPlanGroup($input: SellingPlanGroupInput!) {
+  sellingPlanGroupCreate(input: $input) {
+    sellingPlanGroup {
+      id
+      name
+      sellingPlans {
+        edges {
+          node {
+            id
+            name
+          }
         }
       }
-    }`);
-
-  const {
-    data: {
-      products: { nodes },
-    },
-  } = await response.json();
-
-  return nodes;
+    }
+  }
 }
 ```
 
-This template comes preconfigured with examples of:
+#### Order Edit (Balance Collection)
+```graphql
+mutation orderEditBegin($id: ID!) {
+  orderEditBegin(id: $id) {
+    calculatedOrder {
+      id
+    }
+  }
+}
 
-1. Setting up your Shopify app in [/app/shopify.server.ts](https://github.com/Shopify/shopify-app-template-remix/blob/main/app/shopify.server.ts)
-2. Querying data using Graphql. Please see: [/app/routes/app.\_index.tsx](https://github.com/Shopify/shopify-app-template-remix/blob/main/app/routes/app._index.tsx).
-3. Responding to webhooks in individual files such as [/app/routes/webhooks.app.uninstalled.tsx](https://github.com/Shopify/shopify-app-template-remix/blob/main/app/routes/webhooks.app.uninstalled.tsx) and [/app/routes/webhooks.app.scopes_update.tsx](https://github.com/Shopify/shopify-app-template-remix/blob/main/app/routes/webhooks.app.scopes_update.tsx)
+mutation orderEditAddCustomItem($id: ID!, $title: String!, $price: MoneyInput!) {
+  orderEditAddCustomItem(id: $id, title: $title, price: $price) {
+    calculatedLineItem {
+      id
+    }
+  }
+}
 
-Please read the [documentation for @shopify/shopify-app-remix](https://www.npmjs.com/package/@shopify/shopify-app-remix#authenticating-admin-requests) to understand what other API's are available.
-
-## Deployment
-
-### Application Storage
-
-This template uses [Prisma](https://www.prisma.io/) to store session data, by default using an [SQLite](https://www.sqlite.org/index.html) database.
-The database is defined as a Prisma schema in `prisma/schema.prisma`.
-
-This use of SQLite works in production if your app runs as a single instance.
-The database that works best for you depends on the data your app needs and how it is queried.
-You can run your database of choice on a server yourself or host it with a SaaS company.
-Here's a short list of databases providers that provide a free tier to get started:
-
-| Database   | Type             | Hosters                                                                                                                                                                                                                               |
-| ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MySQL      | SQL              | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-mysql), [Planet Scale](https://planetscale.com/), [Amazon Aurora](https://aws.amazon.com/rds/aurora/), [Google Cloud SQL](https://cloud.google.com/sql/docs/mysql) |
-| PostgreSQL | SQL              | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-postgresql), [Amazon Aurora](https://aws.amazon.com/rds/aurora/), [Google Cloud SQL](https://cloud.google.com/sql/docs/postgres)                                   |
-| Redis      | Key-value        | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-redis), [Amazon MemoryDB](https://aws.amazon.com/memorydb/)                                                                                                        |
-| MongoDB    | NoSQL / Document | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-mongodb), [MongoDB Atlas](https://www.mongodb.com/atlas/database)                                                                                                  |
-
-To use one of these, you can use a different [datasource provider](https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#datasource) in your `schema.prisma` file, or a different [SessionStorage adapter package](https://github.com/Shopify/shopify-api-js/blob/main/packages/shopify-api/docs/guides/session-storage.md).
-
-### Build
-
-Remix handles building the app for you, by running the command below with the package manager of your choice:
-
-Using yarn:
-
-```shell
-yarn build
+mutation orderEditCommit($id: ID!) {
+  orderEditCommit(id: $id, notifyCustomer: true) {
+    order {
+      id
+    }
+  }
+}
 ```
 
-Using npm:
+### Webhook Endpoints
 
-```shell
-npm run build
-```
+- `POST /webhooks/orders/create` - Captures new orders
+- `POST /webhooks/orders/paid` - Updates payment status
+- `POST /webhooks/orders/updated` - Tracks order changes
 
-Using pnpm:
+## 🐛 Troubleshooting
 
-```shell
-pnpm run build
-```
+### Common Issues
 
-## Hosting
-
-When you're ready to set up your app in production, you can follow [our deployment documentation](https://shopify.dev/docs/apps/deployment/web) to host your app on a cloud provider like [Heroku](https://www.heroku.com/) or [Fly.io](https://fly.io/).
-
-When you reach the step for [setting up environment variables](https://shopify.dev/docs/apps/deployment/web#set-env-vars), you also need to set the variable `NODE_ENV=production`.
-
-### Hosting on Vercel
-
-Using the Vercel Preset is recommended when hosting your Shopify Remix app on Vercel. You'll also want to ensure imports that would normally come from `@remix-run/node` are imported from `@vercel/remix` instead. Learn more about hosting Remix apps on Vercel [here](https://vercel.com/docs/frameworks/remix).
-
-```diff
-// vite.config.ts
-import { vitePlugin as remix } from "@remix-run/dev";
-import { defineConfig, type UserConfig } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
-+ import { vercelPreset } from '@vercel/remix/vite';
-
-installGlobals();
-
-export default defineConfig({
-  plugins: [
-    remix({
-      ignoredRouteFiles: ["**/.*"],
-+     presets: [vercelPreset()],
-    }),
-    tsconfigPaths(),
-  ],
-});
-```
-
-## Troubleshooting
-
-### Database tables don't exist
-
-If you get this error:
-
-```
-The table `main.Session` does not exist in the current database.
-```
-
-You need to create the database for Prisma. Run the `setup` script in `package.json` using your preferred package manager.
-
-### Navigating/redirecting breaks an embedded app
-
-Embedded Shopify apps must maintain the user session, which can be tricky inside an iFrame. To avoid issues:
-
-1. Use `Link` from `@remix-run/react` or `@shopify/polaris`. Do not use `<a>`.
-2. Use the `redirect` helper returned from `authenticate.admin`. Do not use `redirect` from `@remix-run/node`
-3. Use `useSubmit` or `<Form/>` from `@remix-run/react`. Do not use a lowercase `<form/>`.
-
-This only applies if your app is embedded, which it will be by default.
-
-### Non Embedded
-
-Shopify apps are best when they are embedded in the Shopify Admin, which is how this template is configured. If you have a reason to not embed your app please make the following changes:
-
-1. Ensure `embedded = false` is set in [shopify.app.toml`](./shopify.app.toml). [Docs here](https://shopify.dev/docs/apps/build/cli-for-apps/app-configuration#global).
-2. Pass `isEmbeddedApp: false` to `shopifyApp()` in `./app/shopify.server.js|ts`.
-3. Change the `isEmbeddedApp` prop to `isEmbeddedApp={false}` for the `AppProvider` in `/app/routes/app.jsx|tsx`.
-4. Remove the `@shopify/app-bridge-react` dependency from [package.json](./package.json) and `vite.config.ts|js`.
-5. Remove anything imported from `@shopify/app-bridge-react`.  For example: `NavMenu`, `TitleBar` and `useAppBridge`.
-
-### OAuth goes into a loop when I change my app's scopes
-
-If you change your app's scopes and authentication goes into a loop and fails with a message from Shopify that it tried too many times, you might have forgotten to update your scopes with Shopify.
-To do that, you can run the `deploy` CLI command.
-
-Using yarn:
-
-```shell
-yarn deploy
-```
-
-Using npm:
-
-```shell
+**Webhook not receiving events**
+```bash
+# Re-register webhooks
 npm run deploy
 ```
 
-Using pnpm:
-
-```shell
-pnpm run deploy
+**Database connection errors**
+```bash
+# Reset database
+npx prisma migrate reset
+npx prisma generate
 ```
 
-### My shop-specific webhook subscriptions aren't updated
+**Selling plan not showing at checkout**
+- Ensure plan is assigned to product
+- Check product variant has inventory
+- Verify selling plan is active in Shopify
 
-If you are registering webhooks in the `afterAuth` hook, using `shopify.registerWebhooks`, you may find that your subscriptions aren't being updated.  
+**Balance collection fails**
+- Verify `write_order_edits` scope is enabled
+- Check app has been reinstalled after scope changes
+- Ensure order is not archived
 
-Instead of using the `afterAuth` hook, the recommended approach is to declare app-specific webhooks in the `shopify.app.toml` file.  This approach is easier since Shopify will automatically update changes to webhook subscriptions every time you run `deploy` (e.g: `npm run deploy`).  Please read these guides to understand more:
+### Debug Mode
 
-1. [app-specific vs shop-specific webhooks](https://shopify.dev/docs/apps/build/webhooks/subscribe#app-specific-subscriptions)
-2. [Create a subscription tutorial](https://shopify.dev/docs/apps/build/webhooks/subscribe/get-started?framework=remix&deliveryMethod=https)
-
-If you do need shop-specific webhooks, please keep in mind that the package calls `afterAuth` in 2 scenarios:
-
-- After installing the app
-- When an access token expires
-
-During normal development, the app won't need to re-authenticate most of the time, so shop-specific subscriptions aren't updated. To force your app to update the subscriptions, you can uninstall and reinstall it in your development store. That will force the OAuth process and call the `afterAuth` hook.
-
-### Admin created webhook failing HMAC validation
-
-Webhooks subscriptions created in the [Shopify admin](https://help.shopify.com/en/manual/orders/notifications/webhooks) will fail HMAC validation. This is because the webhook payload is not signed with your app's secret key.  There are 2 solutions:
-
-1. Use [app-specific webhooks](https://shopify.dev/docs/apps/build/webhooks/subscribe#app-specific-subscriptions) defined in your toml file instead (recommended)
-2. Create [webhook subscriptions](https://shopify.dev/docs/api/shopify-app-remix/v1/guide-webhooks) using the `shopifyApp` object.
-
-Test your webhooks with the [Shopify CLI](https://shopify.dev/docs/apps/tools/cli/commands#webhook-trigger) or by triggering events manually in the Shopify admin(e.g. Updating the product title to trigger a `PRODUCTS_UPDATE`).
-
-### Incorrect GraphQL Hints
-
-By default the [graphql.vscode-graphql](https://marketplace.visualstudio.com/items?itemName=GraphQL.vscode-graphql) extension for VS Code will assume that GraphQL queries or mutations are for the [Shopify Admin API](https://shopify.dev/docs/api/admin). This is a sensible default, but it may not be true if:
-
-1. You use another Shopify API such as the storefront API.
-2. You use a third party GraphQL API.
-
-in this situation, please update the [.graphqlrc.ts](https://github.com/Shopify/shopify-app-template-remix/blob/main/.graphqlrc.ts) config.
-
-### First parameter has member 'readable' that is not a ReadableStream.
-
-See [hosting on Vercel](#hosting-on-vercel).
-
-### Admin object undefined on webhook events triggered by the CLI
-
-When you trigger a webhook event using the Shopify CLI, the `admin` object will be `undefined`. This is because the CLI triggers an event with a valid, but non-existent, shop. The `admin` object is only available when the webhook is triggered by a shop that has installed the app.
-
-Webhooks triggered by the CLI are intended for initial experimentation testing of your webhook configuration. For more information on how to test your webhooks, see the [Shopify CLI documentation](https://shopify.dev/docs/apps/tools/cli/commands#webhook-trigger).
-
-### Using Defer & await for streaming responses
-
-To test [streaming using defer/await](https://remix.run/docs/en/main/guides/streaming) during local development you'll need to use the Shopify CLI slightly differently:
-
-1. First setup ngrok: https://ngrok.com/product/secure-tunnels
-2. Create an ngrok tunnel on port 8080: `ngrok http 8080`.
-3. Copy the forwarding address. This should be something like: `https://f355-2607-fea8-bb5c-8700-7972-d2b5-3f2b-94ab.ngrok-free.app`
-4. In a separate terminal run `yarn shopify app dev --tunnel-url=TUNNEL_URL:8080` replacing `TUNNEL_URL` for the address you copied in step 3.
-
-By default the CLI uses a cloudflare tunnel. Unfortunately it cloudflare tunnels wait for the Response stream to finish, then sends one chunk.
-
-This will not affect production, since tunnels are only for local development.
-
-### Using MongoDB and Prisma
-
-By default this template uses SQLlite as the database. It is recommended to move to a persisted database for production. If you choose to use MongoDB, you will need to make some modifications to the schema and prisma configuration. For more information please see the [Prisma MongoDB documentation](https://www.prisma.io/docs/orm/overview/databases/mongodb).
-
-Alternatively you can use a MongDB database directly with the [MongoDB session storage adapter](https://github.com/Shopify/shopify-app-js/tree/main/packages/apps/session-storage/shopify-app-session-storage-mongodb).
-
-#### Mapping the id field
-
-In MongoDB, an ID must be a single field that defines an @id attribute and a @map("\_id") attribute.
-The prisma adapter expects the ID field to be the ID of the session, and not the \_id field of the document.
-
-To make this work you can add a new field to the schema that maps the \_id field to the id field. For more information see the [Prisma documentation](https://www.prisma.io/docs/orm/prisma-schema/data-model/models#defining-an-id-field)
-
-```prisma
-model Session {
-  session_id  String    @id @default(auto()) @map("_id") @db.ObjectId
-  id          String    @unique
-...
-}
+Enable detailed logging:
+```typescript
+console.log("[DEBUG]", data);
 ```
 
-#### Error: The "mongodb" provider is not supported with this command
+Check logs in terminal during development.
 
-MongoDB does not support the [prisma migrate](https://www.prisma.io/docs/orm/prisma-migrate/understanding-prisma-migrate/overview) command. Instead, you can use the [prisma db push](https://www.prisma.io/docs/orm/reference/prisma-cli-reference#db-push) command and update the `shopify.web.toml` file with the following commands. If you are using MongoDB please see the [Prisma documentation](https://www.prisma.io/docs/orm/overview/databases/mongodb) for more information.
+## 🤝 Contributing
 
-```toml
-[commands]
-predev = "npx prisma generate && npx prisma db push"
-dev = "npm exec remix vite:dev"
-```
+Contributions are welcome! Please:
 
-#### Prisma needs to perform transactions, which requires your mongodb server to be run as a replica set
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
 
-See the [Prisma documentation](https://www.prisma.io/docs/getting-started/setup-prisma/start-from-scratch/mongodb/connect-your-database-node-mongodb) for connecting to a MongoDB database.
+## 📄 License
 
-### I want to use Polaris v13.0.0 or higher
+MIT License - see LICENSE file for details
 
-Currently, this template is set up to work on node v18.20 or higher. However, `@shopify/polaris` is limited to v12 because v13 can only run on node v20+.
+## 👥 Authors
 
-You don't have to make any changes to the code in order to be able to upgrade Polaris to v13, but you'll need to do the following:
+- **Mouhcine Essafi** - Initial development
 
-- Upgrade your node version to v20.10 or higher.
-- Update your `Dockerfile` to pull `FROM node:20-alpine` instead of `node:18-alpine`
+## 🙏 Acknowledgments
 
-### "nbf" claim timestamp check failed
+- Shopify for the comprehensive API documentation
+- Polaris design system for UI components
+- Remix framework for excellent developer experience
 
-This error will occur of the `nbf` claim timestamp check failed. This is because the JWT token is expired.
-If you  are consistently getting this error, it could be that the clock on your machine is not in sync with the server.
+## 📞 Support
 
-To fix this ensure you have enabled `Set time and date automatically` in the `Date and Time` settings on your computer.
+For issues and questions:
+- GitHub Issues: [Create an issue](https://github.com/Mouhcine-ESSAFI/shopify-deposit-app/issues)
+- Email: messafi1337gmail.com
 
-## Benefits
+---
 
-Shopify apps are built on a variety of Shopify tools to create a great merchant experience.
-
-<!-- TODO: Uncomment this after we've updated the docs -->
-<!-- The [create an app](https://shopify.dev/docs/apps/getting-started/create) tutorial in our developer documentation will guide you through creating a Shopify app using this template. -->
-
-The Remix app template comes with the following out-of-the-box functionality:
-
-- [OAuth](https://github.com/Shopify/shopify-app-js/tree/main/packages/shopify-app-remix#authenticating-admin-requests): Installing the app and granting permissions
-- [GraphQL Admin API](https://github.com/Shopify/shopify-app-js/tree/main/packages/shopify-app-remix#using-the-shopify-admin-graphql-api): Querying or mutating Shopify admin data
-- [Webhooks](https://github.com/Shopify/shopify-app-js/tree/main/packages/shopify-app-remix#authenticating-webhook-requests): Callbacks sent by Shopify when certain events occur
-- [AppBridge](https://shopify.dev/docs/api/app-bridge): This template uses the next generation of the Shopify App Bridge library which works in unison with previous versions.
-- [Polaris](https://polaris.shopify.com/): Design system that enables apps to create Shopify-like experiences
-
-## Tech Stack
-
-This template uses [Remix](https://remix.run). The following Shopify tools are also included to ease app development:
-
-- [Shopify App Remix](https://shopify.dev/docs/api/shopify-app-remix) provides authentication and methods for interacting with Shopify APIs.
-- [Shopify App Bridge](https://shopify.dev/docs/apps/tools/app-bridge) allows your app to seamlessly integrate your app within Shopify's Admin.
-- [Polaris React](https://polaris.shopify.com/) is a powerful design system and component library that helps developers build high quality, consistent experiences for Shopify merchants.
-- [Webhooks](https://github.com/Shopify/shopify-app-js/tree/main/packages/shopify-app-remix#authenticating-webhook-requests): Callbacks sent by Shopify when certain events occur
-- [Polaris](https://polaris.shopify.com/): Design system that enables apps to create Shopify-like experiences
-
-## Resources
-
-- [Remix Docs](https://remix.run/docs/en/v1)
-- [Shopify App Remix](https://shopify.dev/docs/api/shopify-app-remix)
-- [Introduction to Shopify apps](https://shopify.dev/docs/apps/getting-started)
-- [App authentication](https://shopify.dev/docs/apps/auth)
-- [Shopify CLI](https://shopify.dev/docs/apps/tools/cli)
-- [App extensions](https://shopify.dev/docs/apps/app-extensions/list)
-- [Shopify Functions](https://shopify.dev/docs/api/functions)
-- [Getting started with internationalizing your app](https://shopify.dev/docs/apps/best-practices/internationalization/getting-started)
+**Built with ❤️ for tour operators and booking businesses**
