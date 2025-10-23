@@ -20,21 +20,102 @@ import {
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback } from "react";
 
-// LOADER - Récupère les données
+// LOADER - Récupère les données via GraphQL
 export const loader = async ({ request }) => {
   try {
     const { admin, session } = await authenticate.admin(request);
     
-    // Récupérer les commandes via Shopify API
-    const ordersResponse = await admin.rest.resources.Order.all({
-      session: session,
-      status: "any",
-      limit: 250, // Maximum par requête
-      fields: "id,name,email,total_price,created_at,financial_status,fulfillment_status,line_items,customer,currency,note_attributes,tags"
+    // Récupérer les commandes via GraphQL
+    const response = await admin.graphql(
+      `#graphql
+        query getOrders {
+          orders(first: 250, sortKey: CREATED_AT, reverse: true) {
+            edges {
+              node {
+                id
+                name
+                email
+                createdAt
+                displayFinancialStatus
+                displayFulfillmentStatus
+                totalPriceSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+                customAttributes {
+                  key
+                  value
+                }
+                tags
+                lineItems(first: 50) {
+                  edges {
+                    node {
+                      id
+                      name
+                      quantity
+                      originalUnitPriceSet {
+                        shopMoney {
+                          amount
+                          currencyCode
+                        }
+                      }
+                    }
+                  }
+                }
+                customer {
+                  id
+                  firstName
+                  lastName
+                  email
+                }
+              }
+            }
+          }
+        }
+      `
+    );
+
+    const data = await response.json();
+    
+    if (data.errors) {
+      throw new Error(data.errors[0].message);
+    }
+
+    // Transformer les données GraphQL au format attendu
+    const orders = data.data.orders.edges.map(edge => {
+      const node = edge.node;
+      return {
+        id: node.id.split('/').pop(), // Extraire l'ID numérique
+        name: node.name,
+        email: node.email,
+        created_at: node.createdAt,
+        financial_status: node.displayFinancialStatus.toLowerCase().replace(/_/g, '_'),
+        fulfillment_status: node.displayFulfillmentStatus?.toLowerCase().replace(/_/g, '_'),
+        total_price: node.totalPriceSet.shopMoney.amount,
+        currency: node.totalPriceSet.shopMoney.currencyCode,
+        note_attributes: node.customAttributes.map(attr => ({
+          name: attr.key,
+          value: attr.value
+        })),
+        tags: node.tags.join(','),
+        line_items: node.lineItems.edges.map(li => ({
+          id: li.node.id,
+          name: li.node.name,
+          quantity: li.node.quantity,
+          price: li.node.originalUnitPriceSet.shopMoney.amount
+        })),
+        customer: node.customer ? {
+          first_name: node.customer.firstName,
+          last_name: node.customer.lastName,
+          email: node.customer.email
+        } : null
+      };
     });
 
     return json({
-      orders: ordersResponse.data,
+      orders: orders,
       shopDomain: session.shop,
       success: true
     });
@@ -49,7 +130,7 @@ export const loader = async ({ request }) => {
   }
 };
 
-// ACTION - Gérer les actions (collect balance, etc.)
+// ACTION - Gérer les actions (collect balance, etc.) via GraphQL
 export const action = async ({ request }) => {
   try {
     const { admin, session } = await authenticate.admin(request);
@@ -61,28 +142,54 @@ export const action = async ({ request }) => {
       const orderName = formData.get("orderName");
       const remainingBalance = parseFloat(formData.get("remainingBalance"));
       const currency = formData.get("currency");
+      const customerEmail = formData.get("customerEmail");
 
-      // Créer un draft order pour le solde restant
-      const draftOrder = await admin.rest.resources.DraftOrder.create({
-        session: session,
-        data: {
-          line_items: [
-            {
-              title: `Solde restant pour commande ${orderName}`,
-              price: remainingBalance.toFixed(2),
-              quantity: 1
+      // Créer un draft order via GraphQL
+      const response = await admin.graphql(
+        `#graphql
+          mutation draftOrderCreate($input: DraftOrderInput!) {
+            draftOrderCreate(input: $input) {
+              draftOrder {
+                id
+                invoiceUrl
+              }
+              userErrors {
+                field
+                message
+              }
             }
-          ],
-          note: `Solde restant de la commande ${orderName}`,
-          email: formData.get("customerEmail"),
-          tags: `balance-collection,original-order-${orderId}`
+          }
+        `,
+        {
+          variables: {
+            input: {
+              lineItems: [
+                {
+                  title: `Solde restant pour commande ${orderName}`,
+                  originalUnitPrice: remainingBalance.toFixed(2),
+                  quantity: 1
+                }
+              ],
+              note: `Solde restant de la commande ${orderName}`,
+              email: customerEmail,
+              tags: [`balance-collection`, `original-order-${orderId}`]
+            }
+          }
         }
-      });
+      );
+
+      const data = await response.json();
+
+      if (data.data.draftOrderCreate.userErrors.length > 0) {
+        throw new Error(data.data.draftOrderCreate.userErrors[0].message);
+      }
+
+      const draftOrder = data.data.draftOrderCreate.draftOrder;
 
       return json({ 
         success: true, 
         message: "Lien de paiement créé avec succès!",
-        invoiceUrl: draftOrder.invoice_url 
+        invoiceUrl: draftOrder.invoiceUrl 
       });
     }
 
