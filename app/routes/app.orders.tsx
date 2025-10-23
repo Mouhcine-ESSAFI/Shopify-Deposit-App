@@ -1,4 +1,16 @@
-import { useLoaderData, useSubmit, useFetcher, useNavigate } from "@remix-run/react";
+{getArrivalDate(selectedOrder) && (
+                  <BlockStack gap="200">
+                    <Text variant="headingMd">Date d'arrivée</Text>
+                    <Card>
+                      <InlineStack align="space-between">
+                        <Text tone="subdued">Date prévue:</Text>
+                        <Text tone="success" fontWeight="bold" variant="headingMd">
+                          {formatDate(getArrivalDate(selectedOrder))}
+                        </Text>
+                      </InlineStack>
+                    </Card>
+                  </BlockStack>
+                )}import { useLoaderData, useSubmit, useFetcher, useNavigate } from "@remix-run/react";
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import {
@@ -331,7 +343,24 @@ export default function Orders() {
       );
     }
 
-    setFilteredOrders(filtered);
+    // Tri par arrival_date (plus récent en premier)
+    const sorted = filtered.sort((a, b) => {
+      const arrivalA = getArrivalDate(a);
+      const arrivalB = getArrivalDate(b);
+      
+      // Si les deux ont une arrival date
+      if (arrivalA && arrivalB) {
+        return arrivalB - arrivalA; // Plus récent en premier
+      }
+      // Si seulement A a une arrival date
+      if (arrivalA) return -1;
+      // Si seulement B a une arrival date
+      if (arrivalB) return 1;
+      // Sinon, trier par created_at
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    setFilteredOrders(sorted);
   }, [searchValue, statusFilter, orders]);
 
   const formatDate = (dateString) => {
@@ -645,7 +674,7 @@ export default function Orders() {
             }}
             title="Collecter le solde restant"
             primaryAction={{
-              content: 'Envoyer',
+              content: 'Envoyer le lien de paiement',
               onAction: confirmCollectBalance,
               loading: fetcher.state === "submitting"
             }}
@@ -661,32 +690,49 @@ export default function Orders() {
           >
             <Modal.Section>
               <BlockStack gap="400">
-                <Text>
-                  Créer un lien de paiement pour <strong>{orderToCollect.name}</strong>
+                <Text variant="bodyMd">
+                  Vous allez créer un lien de paiement pour le solde restant de la commande <strong>{orderToCollect.name}</strong>.
                 </Text>
                 
                 <Card>
                   <BlockStack gap="300">
                     <InlineStack align="space-between">
-                      <Text>Total:</Text>
+                      <Text tone="subdued">Montant total:</Text>
                       <Text fontWeight="bold">
                         {parseFloat(orderToCollect.totalPriceSet.shopMoney.amount).toFixed(2)} {orderToCollect.totalPriceSet.shopMoney.currencyCode}
                       </Text>
                     </InlineStack>
+                    <Divider />
                     <InlineStack align="space-between">
-                      <Text>Acompte:</Text>
-                      <Text tone="success">
+                      <Text tone="subdued">Acompte payé:</Text>
+                      <Text tone="success" fontWeight="semibold">
                         {getDepositInfo(orderToCollect).amount.toFixed(2)} {orderToCollect.totalPriceSet.shopMoney.currencyCode}
                       </Text>
                     </InlineStack>
+                    <Divider />
                     <InlineStack align="space-between">
-                      <Text>Solde:</Text>
-                      <Text fontWeight="bold" tone="warning">
+                      <Text fontWeight="bold">Solde restant à collecter:</Text>
+                      <Text fontWeight="bold" tone="warning" variant="headingMd">
                         {getRemainingBalance(orderToCollect).toFixed(2)} {orderToCollect.totalPriceSet.shopMoney.currencyCode}
                       </Text>
                     </InlineStack>
                   </BlockStack>
                 </Card>
+                
+                <Banner tone="info">
+                  <p>Un lien de paiement sera créé et pourra être envoyé à: <strong>{orderToCollect.email || orderToCollect.customer?.email}</strong></p>
+                </Banner>
+
+                {getArrivalDate(orderToCollect) && (
+                  <Card>
+                    <InlineStack align="space-between">
+                      <Text tone="subdued">Date d'arrivée prévue:</Text>
+                      <Text tone="success" fontWeight="bold">
+                        {formatDate(getArrivalDate(orderToCollect))}
+                      </Text>
+                    </InlineStack>
+                  </Card>
+                )}
               </BlockStack>
             </Modal.Section>
           </Modal>
@@ -727,7 +773,34 @@ export default function Orders() {
                   <Card>
                     <BlockStack gap="200">
                       <InlineStack align="space-between">
-                        <Text>Total:</Text>
+                        <Text>Sous-total:</Text>
+                        <Text>
+                          {parseFloat(selectedOrder.subtotalPriceSet.shopMoney.amount).toFixed(2)} {selectedOrder.totalPriceSet.shopMoney.currencyCode}
+                        </Text>
+                      </InlineStack>
+                      <InlineStack align="space-between">
+                        <Text>Expédition:</Text>
+                        <Text>
+                          {parseFloat(selectedOrder.totalShippingPriceSet.shopMoney.amount).toFixed(2)} {selectedOrder.totalPriceSet.shopMoney.currencyCode}
+                        </Text>
+                      </InlineStack>
+                      <InlineStack align="space-between">
+                        <Text>Taxes:</Text>
+                        <Text>
+                          {parseFloat(selectedOrder.totalTaxSet.shopMoney.amount).toFixed(2)} {selectedOrder.totalPriceSet.shopMoney.currencyCode}
+                        </Text>
+                      </InlineStack>
+                      {parseFloat(selectedOrder.totalDiscountsSet.shopMoney.amount) > 0 && (
+                        <InlineStack align="space-between">
+                          <Text>Réductions:</Text>
+                          <Text tone="critical">
+                            -{parseFloat(selectedOrder.totalDiscountsSet.shopMoney.amount).toFixed(2)} {selectedOrder.totalPriceSet.shopMoney.currencyCode}
+                          </Text>
+                        </InlineStack>
+                      )}
+                      <Divider />
+                      <InlineStack align="space-between">
+                        <Text fontWeight="bold">Total:</Text>
                         <Text fontWeight="bold">
                           {parseFloat(selectedOrder.totalPriceSet.shopMoney.amount).toFixed(2)} {selectedOrder.totalPriceSet.shopMoney.currencyCode}
                         </Text>
@@ -735,15 +808,16 @@ export default function Orders() {
                       
                       {hasDeposit(selectedOrder) && (
                         <>
+                          <Divider />
                           <InlineStack align="space-between">
-                            <Text>Acompte:</Text>
-                            <Text tone="success">
+                            <Text tone="subdued">Acompte payé:</Text>
+                            <Text tone="success" fontWeight="semibold">
                               {getDepositInfo(selectedOrder).amount.toFixed(2)} {selectedOrder.totalPriceSet.shopMoney.currencyCode}
                             </Text>
                           </InlineStack>
                           <InlineStack align="space-between">
-                            <Text fontWeight="semibold">Solde:</Text>
-                            <Text fontWeight="bold" tone="warning">
+                            <Text fontWeight="bold">Solde restant:</Text>
+                            <Text fontWeight="bold" tone="warning" variant="headingMd">
                               {getRemainingBalance(selectedOrder).toFixed(2)} {selectedOrder.totalPriceSet.shopMoney.currencyCode}
                             </Text>
                           </InlineStack>
@@ -752,6 +826,20 @@ export default function Orders() {
                     </BlockStack>
                   </Card>
                 </BlockStack>
+
+                {getArrivalDate(selectedOrder) && (
+                  <BlockStack gap="200">
+                    <Text variant="headingMd">Date d'arrivée</Text>
+                    <Card>
+                      <InlineStack align="space-between">
+                        <Text tone="subdued">Date prévue:</Text>
+                        <Text tone="success" fontWeight="bold" variant="headingMd">
+                          {formatDate(getArrivalDate(selectedOrder))}
+                        </Text>
+                      </InlineStack>
+                    </Card>
+                  </BlockStack>
+                )}
 
                 <BlockStack gap="200">
                   <Text variant="headingMd">Articles ({selectedOrder.lineItems.edges.length})</Text>

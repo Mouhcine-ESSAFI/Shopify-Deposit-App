@@ -26,29 +26,32 @@ export default function App() {
 
   return (
     <div className={styles.container}>
-      {/* Hero Section */}
+      {/* Header */}
       <header className={styles.header}>
         <div className={styles.headerContent}>
           <div className={styles.logo}>
             <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
               <rect width="40" height="40" rx="8" fill="#5C6AC4"/>
-              <path d="M20 10L28 15V25L20 30L12 25V15L20 10Z" fill="white"/>
+              <path d="M12 16L20 12L28 16M12 16L20 20M12 16V24L20 28M28 16L20 20M28 16V24L20 28M20 20V28" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-            <span className={styles.logoText}>Deposit Manager</span>
+            <span className={styles.logoText}>Partial Payment App</span>
           </div>
         </div>
       </header>
 
-      {/* Main Hero */}
+      {/* Hero Section */}
       <section className={styles.hero}>
         <div className={styles.heroContent}>
+          <div className={styles.badge}>
+            <span>🎯 Built for Tour Operators & Booking Businesses</span>
+          </div>
           <h1 className={styles.heroTitle}>
-            Accept Deposits & Partial Payments
-            <span className={styles.heroTitleAccent}> On Any Order</span>
+            Accept Deposits. Collect Balance Later.
+            <span className={styles.heroTitleAccent}> Complete Control.</span>
           </h1>
           <p className={styles.heroSubtitle}>
-            Increase sales by offering flexible payment options. Let customers pay deposits upfront 
-            and complete payment later. Perfect for high-ticket items, pre-orders, and custom products.
+            Let customers pay a deposit upfront for tours and experiences, then manually collect 
+            the balance when you're ready. Perfect for tour operators who need flexibility in payment collection.
           </p>
 
           {showForm ? (
@@ -56,7 +59,7 @@ export default function App() {
               <Form className={styles.installForm} method="post" action="/auth/login">
                 <div className={styles.formGroup}>
                   <label htmlFor="shop" className={styles.formLabel}>
-                    Enter your Shopify store URL
+                    Install on Your Shopify Store
                   </label>
                   <div className={styles.inputWrapper}>
                     <input 
@@ -74,116 +77,193 @@ export default function App() {
                   </div>
                 </div>
                 <button className={styles.installButton} type="submit">
-                  <span>Install App — Free 14 Day Trial</span>
+                  <span>Install Free App</span>
                   <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                     <path d="M7.5 15L12.5 10L7.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </button>
               </Form>
               <p className={styles.installNote}>
-                ✓ No credit card required  •  ✓ Install in 2 minutes
+                ✓ Free to install  •  ✓ Setup in 2 minutes  •  ✓ No coding required
               </p>
             </div>
           ) : (
             <div className={styles.errorBox}>
-              <p>Installation temporarily unavailable. Please contact support@yourdomain.com</p>
+              <p>Installation temporarily unavailable. Please contact support.</p>
             </div>
           )}
+        </div>
+      </section>
+
+      {/* How It Works */}
+      <section className={styles.howItWorks}>
+        <div className={styles.howItWorksContent}>
+          <h2 className={styles.sectionTitle}>How It Works</h2>
+          <p className={styles.sectionSubtitle}>
+            Simple deposit collection in 3 steps
+          </p>
+
+          <div className={styles.stepsGrid}>
+            <div className={styles.stepCard}>
+              <div className={styles.stepNumber}>1</div>
+              <h3 className={styles.stepTitle}>Customer Pays Deposit</h3>
+              <p className={styles.stepDescription}>
+                Customer books a tour and pays a customizable deposit percentage (15%, 20%, 30%, or any amount) 
+                at checkout. The order is captured automatically.
+              </p>
+            </div>
+
+            <div className={styles.stepCard}>
+              <div className={styles.stepNumber}>2</div>
+              <h3 className={styles.stepTitle}>You Control When to Collect</h3>
+              <p className={styles.stepDescription}>
+                Manually collect the remaining balance when you're ready - before the tour, on tour day, 
+                or whenever works for your business. One-click balance collection with 3% processing fee option.
+              </p>
+            </div>
+
+            <div className={styles.stepCard}>
+              <div className={styles.stepNumber}>3</div>
+              <h3 className={styles.stepTitle}>Customer Completes Payment</h3>
+              <p className={styles.stepDescription}>
+                Customer receives automatic email with secure payment link. They can pay online via card 
+                or choose cash payment on tour day. Status updates automatically.
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 
       {/* Features Grid */}
       <section className={styles.features}>
         <div className={styles.featuresContent}>
-          <h2 className={styles.sectionTitle}>Everything You Need to Manage Deposits</h2>
+          <h2 className={styles.sectionTitle}>Everything You Need for Tour Bookings</h2>
           <p className={styles.sectionSubtitle}>
-            Powerful features designed specifically for Shopify merchants
+            Powerful features designed specifically for tour operators
           </p>
 
           <div className={styles.featuresGrid}>
             <div className={styles.featureCard}>
               <div className={styles.featureIcon}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M2 17L12 22L22 17" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M2 12L12 17L22 12" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-              <h3 className={styles.featureTitle}>Flexible Deposit Rules</h3>
-              <p className={styles.featureDescription}>
-                Set percentage or fixed amount deposits. Apply rules globally or per product. 
-                Perfect for pre-orders, custom items, and high-value products.
-              </p>
-            </div>
-
-            <div className={styles.featureCard}>
-              <div className={styles.featureIcon}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <rect x="3" y="3" width="18" height="18" rx="2" stroke="#5C6AC4" strokeWidth="2"/>
-                  <path d="M9 11L11 13L15 9" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-              </div>
-              <h3 className={styles.featureTitle}>Automated Tracking</h3>
-              <p className={styles.featureDescription}>
-                Automatically track all partial payments and outstanding balances. 
-                Get real-time notifications when customers complete their payments.
-              </p>
-            </div>
-
-            <div className={styles.featureCard}>
-              <div className={styles.featureIcon}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15" stroke="#5C6AC4" strokeWidth="2"/>
-                  <path d="M17 8L12 3L7 8" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round"/>
-                  <path d="M12 3V15" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-              </div>
-              <h3 className={styles.featureTitle}>Payment Reminders</h3>
-              <p className={styles.featureDescription}>
-                Automated email reminders for outstanding balances. Customizable templates 
-                and schedules to match your brand and business needs.
-              </p>
-            </div>
-
-            <div className={styles.featureCard}>
-              <div className={styles.featureIcon}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="#5C6AC4" strokeWidth="2"/>
-                  <path d="M12 6V12L16 14" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-              </div>
-              <h3 className={styles.featureTitle}>Custom Payment Plans</h3>
-              <p className={styles.featureDescription}>
-                Create flexible payment schedules. Split payments over weeks or months. 
-                Give customers the flexibility they need to make larger purchases.
-              </p>
-            </div>
-
-            <div className={styles.featureCard}>
-              <div className={styles.featureIcon}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M21 12V7C21 5.9 20.1 5 19 5H5C3.9 5 3 5.9 3 7V17C3 18.1 3.9 19 5 19H11" stroke="#5C6AC4" strokeWidth="2"/>
+                  <path d="M21 12V7C21 5.9 20.1 5 19 5H5C3.9 5 3 5.9 3 7V17C3 18.1 3.9 19 5 19H11" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round"/>
                   <path d="M16 21L18 19L22 23" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round"/>
+                  <path d="M3 10H21" stroke="#5C6AC4" strokeWidth="2"/>
                 </svg>
               </div>
-              <h3 className={styles.featureTitle}>Order Management</h3>
+              <h3 className={styles.featureTitle}>Flexible Deposit Plans</h3>
               <p className={styles.featureDescription}>
-                View all deposit orders in one dashboard. Filter by status, search by customer, 
-                and export reports for accounting and analysis.
+                Create custom deposit payment plans with any percentage (1-99%). Set different deposit 
+                amounts for different tour types or seasonal offerings.
               </p>
             </div>
 
             <div className={styles.featureCard}>
               <div className={styles.featureIcon}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M20 21V19C20 17.9 19.1 17 18 17H6C4.9 17 4 17.9 4 19V21" stroke="#5C6AC4" strokeWidth="2"/>
-                  <circle cx="12" cy="7" r="4" stroke="#5C6AC4" strokeWidth="2"/>
+                  <path d="M12 8V12L15 15" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round"/>
+                  <circle cx="12" cy="12" r="9" stroke="#5C6AC4" strokeWidth="2"/>
                 </svg>
               </div>
-              <h3 className={styles.featureTitle}>Customer Experience</h3>
+              <h3 className={styles.featureTitle}>Manual Balance Collection</h3>
               <p className={styles.featureDescription}>
-                Seamless checkout experience for customers. Clear payment terms displayed 
-                at checkout. Easy-to-use payment portal for completing balances.
+                Full control over when to charge the remaining balance. No automatic charging - you decide 
+                when it's time to collect payment for each booking.
+              </p>
+            </div>
+
+            <div className={styles.featureCard}>
+              <div className={styles.featureIcon}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <h3 className={styles.featureTitle}>Automated Order Tracking</h3>
+              <p className={styles.featureDescription}>
+                Webhooks automatically capture and track all deposit orders. Real-time status updates 
+                when payments are completed. Never lose track of a booking.
+              </p>
+            </div>
+
+            <div className={styles.featureCard}>
+              <div className={styles.featureIcon}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="8" width="18" height="12" rx="2" stroke="#5C6AC4" strokeWidth="2"/>
+                  <path d="M7 8V6C7 4.34315 8.34315 3 10 3H14C15.6569 3 17 4.34315 17 6V8" stroke="#5C6AC4" strokeWidth="2"/>
+                  <circle cx="12" cy="14" r="1" fill="#5C6AC4"/>
+                </svg>
+              </div>
+              <h3 className={styles.featureTitle}>Processing Fee System</h3>
+              <p className={styles.featureDescription}>
+                Automatically add 3% processing fee when collecting balance (customizable). Covers your 
+                payment processing costs and protects your margins.
+              </p>
+            </div>
+
+            <div className={styles.featureCard}>
+              <div className={styles.featureIcon}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 7H20M4 12H20M4 17H20" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round"/>
+                  <circle cx="8" cy="7" r="1" fill="#5C6AC4"/>
+                  <circle cx="8" cy="12" r="1" fill="#5C6AC4"/>
+                  <circle cx="8" cy="17" r="1" fill="#5C6AC4"/>
+                </svg>
+              </div>
+              <h3 className={styles.featureTitle}>Advanced Order Management</h3>
+              <p className={styles.featureDescription}>
+                View and filter all deposit orders in one dashboard. Search by order number, customer 
+                email, or status. Export reports for accounting and analysis.
+              </p>
+            </div>
+
+            <div className={styles.featureCard}>
+              <div className={styles.featureIcon}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 4H20C21.1 4 22 4.9 22 6V18C22 19.1 21.1 20 20 20H4C2.9 20 2 19.1 2 18V6C2 4.9 2.9 4 4 4Z" stroke="#5C6AC4" strokeWidth="2"/>
+                  <path d="M22 6L12 13L2 6" stroke="#5C6AC4" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              </div>
+              <h3 className={styles.featureTitle}>Email Notifications</h3>
+              <p className={styles.featureDescription}>
+                Automated payment request emails sent to customers with secure checkout links. 
+                Clear payment instructions and amount breakdowns included.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Perfect For Section */}
+      <section className={styles.perfectFor}>
+        <div className={styles.perfectForContent}>
+          <h2 className={styles.sectionTitle}>Perfect For</h2>
+          <div className={styles.useCasesGrid}>
+            <div className={styles.useCaseCard}>
+              <div className={styles.useCaseIcon}>🚁</div>
+              <h3 className={styles.useCaseTitle}>Tour Operators</h3>
+              <p className={styles.useCaseText}>
+                Helicopter tours, city tours, adventure experiences - collect deposits to secure bookings
+              </p>
+            </div>
+            <div className={styles.useCaseCard}>
+              <div className={styles.useCaseIcon}>🎫</div>
+              <h3 className={styles.useCaseTitle}>Experience Providers</h3>
+              <p className={styles.useCaseText}>
+                Wine tastings, cooking classes, escape rooms - require deposits for reservations
+              </p>
+            </div>
+            <div className={styles.useCaseCard}>
+              <div className={styles.useCaseIcon}>🏖️</div>
+              <h3 className={styles.useCaseTitle}>Travel & Hospitality</h3>
+              <p className={styles.useCaseText}>
+                Hotels, vacation rentals, travel packages - secure bookings with flexible payment terms
+              </p>
+            </div>
+            <div className={styles.useCaseCard}>
+              <div className={styles.useCaseIcon}>🎭</div>
+              <h3 className={styles.useCaseTitle}>Event Bookings</h3>
+              <p className={styles.useCaseText}>
+                Workshops, concerts, conferences - manage group bookings with deposit payments
               </p>
             </div>
           </div>
@@ -193,27 +273,27 @@ export default function App() {
       {/* Benefits Section */}
       <section className={styles.benefits}>
         <div className={styles.benefitsContent}>
-          <h2 className={styles.sectionTitle}>Why Merchants Love Deposit Manager</h2>
+          <h2 className={styles.sectionTitle}>Why Tour Operators Choose Us</h2>
           <div className={styles.benefitsGrid}>
             <div className={styles.benefitCard}>
-              <div className={styles.benefitNumber}>📈</div>
-              <h3 className={styles.benefitTitle}>Increase AOV by 35%</h3>
-              <p className={styles.benefitText}>
-                Customers spend more when they can spread payments over time
-              </p>
-            </div>
-            <div className={styles.benefitCard}>
               <div className={styles.benefitNumber}>💰</div>
-              <h3 className={styles.benefitTitle}>Reduce Cart Abandonment</h3>
+              <h3 className={styles.benefitTitle}>Reduce No-Shows</h3>
               <p className={styles.benefitText}>
-                Lower the barrier to purchase with flexible deposit options
+                Deposits commit customers to their bookings, dramatically reducing cancellations and no-shows
               </p>
             </div>
             <div className={styles.benefitCard}>
               <div className={styles.benefitNumber}>⚡</div>
-              <h3 className={styles.benefitTitle}>Setup in Minutes</h3>
+              <h3 className={styles.benefitTitle}>Improve Cash Flow</h3>
               <p className={styles.benefitText}>
-                No coding required. Works with your existing theme instantly
+                Get paid upfront for future bookings. Better forecasting and financial planning
+              </p>
+            </div>
+            <div className={styles.benefitCard}>
+              <div className={styles.benefitNumber}>🎯</div>
+              <h3 className={styles.benefitTitle}>Complete Flexibility</h3>
+              <p className={styles.benefitText}>
+                You decide when to collect balance - before tour, on tour day, or accept cash payment
               </p>
             </div>
           </div>
@@ -223,9 +303,9 @@ export default function App() {
       {/* CTA Section */}
       <section className={styles.cta}>
         <div className={styles.ctaContent}>
-          <h2 className={styles.ctaTitle}>Ready to Accept Deposits?</h2>
+          <h2 className={styles.ctaTitle}>Ready to Start Accepting Deposits?</h2>
           <p className={styles.ctaSubtitle}>
-            Join hundreds of merchants already using Deposit Manager
+            Join tour operators already using Partial Payment App to manage their bookings
           </p>
           {showForm && (
             <Form className={styles.ctaForm} method="post" action="/auth/login">
@@ -239,26 +319,45 @@ export default function App() {
                 autoComplete="off"
               />
               <button className={styles.ctaButton} type="submit">
-                Get Started Free
+                Install Free App
               </button>
             </Form>
           )}
+          <p className={styles.ctaNote}>
+            Free to install • No credit card required • Setup in minutes
+          </p>
         </div>
       </section>
 
       {/* Footer */}
       <footer className={styles.footer}>
         <div className={styles.footerContent}>
-          <div className={styles.footerLinks}>
-            <a href="mailto:support@yourdomain.com" className={styles.footerLink}>Support</a>
-            <span className={styles.footerDivider}>•</span>
-            <a href="/privacy" className={styles.footerLink}>Privacy Policy</a>
-            <span className={styles.footerDivider}>•</span>
-            <a href="/terms" className={styles.footerLink}>Terms of Service</a>
+          <div className={styles.footerTop}>
+            <div className={styles.footerBrand}>
+              <div className={styles.footerLogo}>
+                <svg width="32" height="32" viewBox="0 0 40 40" fill="none">
+                  <rect width="40" height="40" rx="8" fill="#5C6AC4"/>
+                  <path d="M12 16L20 12L28 16M12 16L20 20M12 16V24L20 28M28 16L20 20M28 16V24L20 28M20 20V28" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span>Partial Payment App</span>
+              </div>
+              <p className={styles.footerTagline}>
+                Flexible payment solutions for tour operators
+              </p>
+            </div>
           </div>
-          <p className={styles.footerCopy}>
-            © {new Date().getFullYear()} Deposit Manager. All rights reserved.
-          </p>
+          <div className={styles.footerBottom}>
+            <div className={styles.footerLinks}>
+              <a href="mailto:messafi1337@gmail.com" className={styles.footerLink}>Contact Support</a>
+              <span className={styles.footerDivider}>•</span>
+              <a href="/privacy" className={styles.footerLink}>Privacy Policy</a>
+              <span className={styles.footerDivider}>•</span>
+              <a href="/terms" className={styles.footerLink}>Terms of Service</a>
+            </div>
+            <p className={styles.footerCopy}>
+              © {new Date().getFullYear()} Partial Payment App. Built for tour operators.
+            </p>
+          </div>
         </div>
       </footer>
     </div>
