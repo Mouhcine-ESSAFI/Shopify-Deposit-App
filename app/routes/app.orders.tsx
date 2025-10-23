@@ -1,911 +1,857 @@
-// app/routes/app.orders.tsx - Complete Version
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
+import { useLoaderData, useSubmit, useFetcher } from "@remix-run/react";
 import { json } from "@remix-run/node";
-import { useLoaderData, useActionData, useSubmit, useNavigation } from "@remix-run/react";
+import { authenticate } from "../shopify.server";
 import {
   Page,
   Layout,
   Card,
-  Text,
+  DataTable,
   Badge,
-  InlineStack,
+  Text,
   BlockStack,
-  Box,
   Button,
-  Banner,
+  TextField,
+  Select,
+  InlineStack,
+  EmptyState,
   Modal,
-  Divider,
-  IndexTable,
-  useIndexResourceState,
-  EmptySearchResult,
-  Filters,
-  ChoiceList,
-  Thumbnail,
+  Banner,
+  Spinner
 } from "@shopify/polaris";
-import { useState, useCallback, useMemo } from "react";
-import { authenticate } from "../shopify.server";
+import { useState, useEffect, useCallback } from "react";
 
-// GraphQL Mutations for balance collection
-const ADD_LINE_ITEM_MUTATION = `
-  mutation orderEditBegin($id: ID!) {
-    orderEditBegin(id: $id) {
-      calculatedOrder {
-        id
-      }
-      userErrors {
-        field
-        message
-      }
-    }
-  }
-`;
-
-const ADD_CUSTOM_ITEM_MUTATION = `
-  mutation orderEditAddCustomItem($id: ID!, $title: String!, $price: MoneyInput!, $quantity: Int!, $taxable: Boolean!) {
-    orderEditAddCustomItem(
-      id: $id, 
-      title: $title, 
-      price: $price, 
-      quantity: $quantity,
-      taxable: $taxable
-    ) {
-      calculatedLineItem {
-        id
-      }
-      userErrors {
-        field
-        message
-      }
-    }
-  }
-`;
-
-const COMMIT_ORDER_EDIT_MUTATION = `
-  mutation orderEditCommit($id: ID!, $notifyCustomer: Boolean, $staffNote: String) {
-    orderEditCommit(id: $id, notifyCustomer: $notifyCustomer, staffNote: $staffNote) {
-      order {
-        id
-      }
-      userErrors {
-        field
-        message
-      }
-    }
-  }
-`;
-
-// GraphQL query to fetch orders
-const GET_ORDERS_QUERY = `
-  query getOrders($query: String!) {
-    orders(first: 250, query: $query, sortKey: CREATED_AT, reverse: true) {
-      edges {
-        node {
-          id
-          name
-          createdAt
-          displayFinancialStatus
-          displayFulfillmentStatus
-          totalPriceSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-          }
-          currentTotalPriceSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-          }
-          customer {
-            id
-            firstName
-            lastName
-            email
-            phone
-          }
-          lineItems(first: 10) {
-            edges {
-              node {
-                id
-                title
-                quantity
-                variant {
-                  id
-                  title
-                  image {
-                    url
-                  }
-                }
-                customAttributes {
-                  key
-                  value
-                }
-              }
-            }
-          }
-          transactions(first: 10) {
-            id
-            kind
-            status
-            amountSet {
-              shopMoney {
-                amount
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
-export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
-  
-  // Query for orders with selling plans
-  const response = await admin.graphql(GET_ORDERS_QUERY, {
-    variables: { 
-      query: "tag:deposit OR financial_status:partially_paid OR financial_status:paid" 
-    }
-  });
-  
-  const data = await response.json();
-  const orders = data.data?.orders?.edges || [];
-  
-  // Transform and enrich order data
-  const enrichedOrders = orders.map(({ node }: any) => {
-    const lineItems = node.lineItems.edges;
-    const firstItem = lineItems[0]?.node;
+// LOADER - Récupère les données
+export const loader = async ({ request }) => {
+  try {
+    const { admin, session } = await authenticate.admin(request);
     
-    // Extract custom attributes
-    const customAttributes: Record<string, string> = {};
-    firstItem?.customAttributes?.forEach((attr: any) => {
-      customAttributes[attr.key] = attr.value;
+    // Récupérer les commandes via Shopify API
+    const ordersResponse = await admin.rest.resources.Order.all({
+      session: session,
+      status: "any",
+      limit: 250, // Maximum par requête
+      fields: "id,name,email,total_price,created_at,financial_status,fulfillment_status,line_items,customer,currency,note_attributes,tags"
     });
-    
-    // Calculate deposit info more accurately
-    const totalAmount = parseFloat(node.currentTotalPriceSet.shopMoney.amount);
-    
-    // Get all successful transactions
-    const successfulTransactions = node.transactions.filter((t: any) => 
-      t.kind === "SALE" && t.status === "SUCCESS"
-    );
-    
-    // Sum all successful payments
-    const totalPaid = successfulTransactions.reduce((sum: number, t: any) => 
-      sum + parseFloat(t.amountSet.shopMoney.amount), 0
-    );
-    
-    // First payment is usually the deposit
-    const depositAmount = successfulTransactions.length > 0
-      ? parseFloat(successfulTransactions[0].amountSet.shopMoney.amount)
-      : 0;
-    
-    const balanceAmount = totalAmount - totalPaid;
-    
-    // Balance is paid if remaining amount is very small or order is marked as paid
-    const balancePaid = balanceAmount < 0.01 || node.displayFinancialStatus === "PAID";
-    
-    return {
-      id: node.id,
-      orderNumber: node.name,
-      createdAt: node.createdAt,
-      
-      // Customer info
-      customerName: node.customer 
-        ? `${node.customer.firstName || ''} ${node.customer.lastName || ''}`.trim()
-        : 'Guest',
-      customerEmail: node.customer?.email || '',
-      customerPhone: node.customer?.phone || '',
-      
-      // Tour/Product info
-      tourName: firstItem?.title || '',
-      tourImage: firstItem?.variant?.image?.url || '',
-      quantity: firstItem?.quantity || 1,
-      
-      // Custom attributes from tours
-      arrivalDate: customAttributes['Arrival Date'] || customAttributes['arrival_date'] || '',
-      pickupAddress: customAttributes['Pickup Address'] || customAttributes['pickup_address'] || '',
-      campCategory: customAttributes['Camp Category'] || customAttributes['camp_category'] || '',
-      travelers: customAttributes['Travelers'] || customAttributes['travelers'] || '',
-      
-      // Financial info
-      totalAmount,
-      depositAmount,
-      totalPaid,
-      balanceAmount: Math.max(0, balanceAmount),
-      balancePaid,
-      currency: node.currentTotalPriceSet.shopMoney.currencyCode,
-      
-      // Status
-      financialStatus: node.displayFinancialStatus,
-      fulfillmentStatus: node.displayFulfillmentStatus,
-    };
-  });
-  
-  return json({
-    orders: enrichedOrders,
-    shop: session.shop,
-  });
+
+    return json({
+      orders: ordersResponse.data,
+      shopDomain: session.shop,
+      success: true
+    });
+
+  } catch (error) {
+    console.error("Error loading orders:", error);
+    return json({ 
+      orders: [], 
+      error: error.message,
+      success: false 
+    });
+  }
 };
 
-export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
-  const formData = await request.formData();
-  const actionType = formData.get("_action");
+// ACTION - Gérer les actions (collect balance, etc.)
+export const action = async ({ request }) => {
+  try {
+    const { admin, session } = await authenticate.admin(request);
+    const formData = await request.formData();
+    const actionType = formData.get("action");
 
-  if (actionType === "collect_balance") {
-    const orderGid = formData.get("orderGid") as string;
-    const balanceAmount = parseFloat(formData.get("balanceAmount") as string);
+    if (actionType === "collectBalance") {
+      const orderId = formData.get("orderId");
+      const orderName = formData.get("orderName");
+      const remainingBalance = parseFloat(formData.get("remainingBalance"));
+      const currency = formData.get("currency");
 
-    try {
-      const processingFee = balanceAmount * 0.03;
-
-      // Begin order edit
-      const beginResponse = await admin.graphql(ADD_LINE_ITEM_MUTATION, {
-        variables: { id: orderGid }
-      });
-      const beginResult = await beginResponse.json();
-
-      if (beginResult.data?.orderEditBegin?.userErrors?.length > 0) {
-        return json({
-          success: false,
-          errors: beginResult.data.orderEditBegin.userErrors
-        });
-      }
-
-      const calculatedOrderId = beginResult.data.orderEditBegin.calculatedOrder.id;
-
-      // Add processing fee as custom item
-      const addItemResponse = await admin.graphql(ADD_CUSTOM_ITEM_MUTATION, {
-        variables: {
-          id: calculatedOrderId,
-          title: "Processing Fee (3%)",
-          price: {
-            amount: processingFee.toFixed(2),
-            currencyCode: "EUR"
-          },
-          quantity: 1,
-          taxable: false
+      // Créer un draft order pour le solde restant
+      const draftOrder = await admin.rest.resources.DraftOrder.create({
+        session: session,
+        data: {
+          line_items: [
+            {
+              title: `Solde restant pour commande ${orderName}`,
+              price: remainingBalance.toFixed(2),
+              quantity: 1
+            }
+          ],
+          note: `Solde restant de la commande ${orderName}`,
+          email: formData.get("customerEmail"),
+          tags: `balance-collection,original-order-${orderId}`
         }
       });
-      const addItemResult = await addItemResponse.json();
 
-      if (addItemResult.data?.orderEditAddCustomItem?.userErrors?.length > 0) {
-        return json({
-          success: false,
-          errors: addItemResult.data.orderEditAddCustomItem.userErrors
-        });
-      }
-
-      // Commit the order edit
-      const commitResponse = await admin.graphql(COMMIT_ORDER_EDIT_MUTATION, {
-        variables: {
-          id: calculatedOrderId,
-          notifyCustomer: true,
-          staffNote: `Processing fee: €${processingFee.toFixed(2)} (3%) added for balance payment collection`
-        }
-      });
-      const commitResult = await commitResponse.json();
-
-      if (commitResult.data?.orderEditCommit?.userErrors?.length > 0) {
-        return json({
-          success: false,
-          errors: commitResult.data.orderEditCommit.userErrors
-        });
-      }
-
-      return json({
-        success: true,
-        message: `Payment request sent! Customer will pay €${(balanceAmount + processingFee).toFixed(2)} (€${balanceAmount.toFixed(2)} balance + €${processingFee.toFixed(2)} fee)`
-      });
-
-    } catch (error) {
-      console.error("Error collecting balance:", error);
-      return json({
-        success: false,
-        errors: [{ message: error instanceof Error ? error.message : "Unknown error" }]
+      return json({ 
+        success: true, 
+        message: "Lien de paiement créé avec succès!",
+        invoiceUrl: draftOrder.invoice_url 
       });
     }
+
+    return json({ success: false, message: "Action inconnue" });
+
+  } catch (error) {
+    console.error("Action error:", error);
+    return json({ 
+      success: false, 
+      error: error.message 
+    }, { status: 500 });
   }
-
-  return json({ success: false, errors: [{ message: "Unknown action" }] });
 };
-
-type SortKey = 'orderNumber' | 'customerName' | 'arrivalDate' | 'totalAmount' | 'balanceAmount' | 'createdAt';
-type SortDirection = 'ascending' | 'descending';
 
 export default function Orders() {
-  const { orders } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const { orders, shopDomain, error } = useLoaderData();
   const submit = useSubmit();
-  const navigation = useNavigation();
-
-  const [selectedOrder, setSelectedOrder] = useState<any>(null);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const fetcher = useFetcher();
   
-  // Filter and sort states
-  const [searchValue, setSearchValue] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string[]>([]);
-  const [sortKey, setSortKey] = useState<SortKey>('arrivalDate');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('descending');
+  // États
+  const [searchValue, setSearchValue] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [filteredOrders, setFilteredOrders] = useState([]);
+  const [sortedOrders, setSortedOrders] = useState([]);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [showCollectModal, setShowCollectModal] = useState(false);
+  const [orderToCollect, setOrderToCollect] = useState(null);
 
-  const isLoading = navigation.state === "submitting";
-
-  // Format functions
-  const formatCurrency = (amount: number, currency: string = 'EUR') => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency,
-    }).format(amount);
+  // Trier par date d'arrivée (arrival date) depuis note_attributes
+  const getArrivalDate = (order) => {
+    const arrivalAttr = order.note_attributes?.find(
+      attr => attr.name === "arrival_date" || attr.name === "Arrival Date"
+    );
+    return arrivalAttr ? new Date(arrivalAttr.value) : null;
   };
 
-  const formatDate = (date: string) => {
-    if (!date) return '-';
-    return new Date(date).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
+  // Extraire le montant du deposit depuis note_attributes ou tags
+  const getDepositInfo = (order) => {
+    // Chercher dans note_attributes
+    const depositAttr = order.note_attributes?.find(
+      attr => attr.name === "deposit_amount" || 
+             attr.name === "Deposit Amount" ||
+             attr.name === "deposit"
+    );
+    
+    if (depositAttr) {
+      return {
+        amount: parseFloat(depositAttr.value),
+        exists: true
+      };
+    }
+    
+    // Chercher dans les tags (format: "deposit:100" ou "deposit_100")
+    if (order.tags) {
+      const depositTag = order.tags.split(',').find(tag => 
+        tag.trim().toLowerCase().includes('deposit')
+      );
+      
+      if (depositTag) {
+        const match = depositTag.match(/[\d.]+/);
+        if (match) {
+          return {
+            amount: parseFloat(match[0]),
+            exists: true
+          };
+        }
+      }
+    }
+    
+    // Vérifier si c'est un paiement partiel (partially_paid)
+    if (order.financial_status === 'partially_paid') {
+      // Le montant payé est indiqué dans Shopify
+      // On peut estimer que c'est un deposit
+      return {
+        amount: 0, // On ne peut pas le calculer sans API supplémentaire
+        exists: true,
+        isPartiallyPaid: true
+      };
+    }
+    
+    return { amount: 0, exists: false };
+  };
+
+  // Calculer le solde restant
+  const getRemainingBalance = (order) => {
+    const depositInfo = getDepositInfo(order);
+    if (!depositInfo.exists) return 0;
+    
+    const totalPrice = parseFloat(order.total_price);
+    
+    if (depositInfo.isPartiallyPaid) {
+      // Pour les partially_paid, on ne peut pas calculer exactement sans API supplémentaire
+      // On retourne un indicateur
+      return totalPrice * 0.5; // Estimation 50% (à ajuster selon ton business)
+    }
+    
+    return totalPrice - depositInfo.amount;
+  };
+
+  // Vérifier si c'est une commande avec deposit
+  const hasDeposit = (order) => {
+    return getDepositInfo(order).exists;
+  };
+
+  // Vérifier si le lien de paiement a déjà été envoyé (via tags)
+  const isBalanceCollectionSent = (order) => {
+    if (!order.tags) return false;
+    return order.tags.includes('balance-collection-sent');
+  };
+
+  // Filtrage et tri
+  useEffect(() => {
+    let filtered = [...orders];
+
+    // Filtre par recherche
+    if (searchValue) {
+      filtered = filtered.filter(order => 
+        order.name.toLowerCase().includes(searchValue.toLowerCase()) ||
+        order.email?.toLowerCase().includes(searchValue.toLowerCase()) ||
+        order.customer?.email?.toLowerCase().includes(searchValue.toLowerCase()) ||
+        order.customer?.first_name?.toLowerCase().includes(searchValue.toLowerCase()) ||
+        order.customer?.last_name?.toLowerCase().includes(searchValue.toLowerCase())
+      );
+    }
+
+    // Filtre par statut de paiement
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(order => order.financial_status === statusFilter);
+    }
+
+    // Filtre par date
+    if (dateFilter !== "all") {
+      const now = new Date();
+      const filterDate = new Date();
+      
+      switch(dateFilter) {
+        case "today":
+          filterDate.setHours(0, 0, 0, 0);
+          filtered = filtered.filter(order => new Date(order.created_at) >= filterDate);
+          break;
+        case "week":
+          filterDate.setDate(now.getDate() - 7);
+          filtered = filtered.filter(order => new Date(order.created_at) >= filterDate);
+          break;
+        case "month":
+          filterDate.setMonth(now.getMonth() - 1);
+          filtered = filtered.filter(order => new Date(order.created_at) >= filterDate);
+          break;
+      }
+    }
+
+    // Trier par arrival date si disponible, sinon par created_at
+    const sorted = filtered.sort((a, b) => {
+      const arrivalA = getArrivalDate(a);
+      const arrivalB = getArrivalDate(b);
+      
+      // Si les deux ont une arrival date
+      if (arrivalA && arrivalB) {
+        return arrivalB - arrivalA; // Plus récent en premier
+      }
+      // Si seulement A a une arrival date
+      if (arrivalA) return -1;
+      // Si seulement B a une arrival date
+      if (arrivalB) return 1;
+      // Sinon, trier par created_at
+      return new Date(b.created_at) - new Date(a.created_at);
     });
-  };
 
-  const formatDateTime = (date: string) => {
-    return new Date(date).toLocaleDateString('en-US', {
+    setSortedOrders(sorted);
+    setFilteredOrders(sorted);
+  }, [searchValue, statusFilter, dateFilter, orders]);
+
+  // Formater la date
+  const formatDate = (dateString) => {
+    if (!dateString) return "N/A";
+    const date = new Date(dateString);
+    return date.toLocaleDateString('fr-FR', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit',
+      minute: '2-digit'
     });
   };
 
-  // Sort and filter logic
-  const sortedAndFilteredOrders = useMemo(() => {
-    let filtered = [...orders];
+  // Badge de statut de paiement
+  const getStatusBadge = (order) => {
+    const status = order.financial_status;
+    const statusMap = {
+      'paid': { status: 'success', label: 'Payé' },
+      'pending': { status: 'warning', label: 'En attente' },
+      'authorized': { status: 'info', label: 'Autorisé' },
+      'refunded': { status: 'critical', label: 'Remboursé' },
+      'voided': { status: 'critical', label: 'Annulé' },
+      'partially_paid': { status: 'warning', label: 'Acompte payé' },
+      'partially_refunded': { status: 'warning', label: 'Partiellement remboursé' }
+    };
 
-    // Search filter
-    if (searchValue) {
-      const search = searchValue.toLowerCase();
-      filtered = filtered.filter((order: any) => 
-        order.orderNumber?.toLowerCase().includes(search) ||
-        order.customerEmail?.toLowerCase().includes(search) ||
-        order.customerName?.toLowerCase().includes(search) ||
-        order.customerPhone?.includes(search) ||
-        order.tourName?.toLowerCase().includes(search)
+    const config = statusMap[status] || { status: 'default', label: status };
+    
+    // Si c'est un deposit, ajouter une indication
+    if (hasDeposit(order)) {
+      return (
+        <InlineStack gap="200">
+          <Badge status={config.status}>{config.label}</Badge>
+          <Badge status="info">Acompte</Badge>
+        </InlineStack>
       );
     }
-
-    // Status filter
-    if (statusFilter.length > 0) {
-      filtered = filtered.filter((order: any) => {
-        if (statusFilter.includes('paid') && order.balancePaid) return true;
-        if (statusFilter.includes('pending') && !order.balancePaid) return true;
-        return false;
-      });
-    }
-
-    // Sort
-    return filtered.sort((a: any, b: any) => {
-      let aVal: any;
-      let bVal: any;
-
-      switch (sortKey) {
-        case 'arrivalDate':
-          aVal = a.arrivalDate ? new Date(a.arrivalDate).getTime() : 0;
-          bVal = b.arrivalDate ? new Date(b.arrivalDate).getTime() : 0;
-          break;
-        case 'createdAt':
-          aVal = new Date(a.createdAt).getTime();
-          bVal = new Date(b.createdAt).getTime();
-          break;
-        case 'totalAmount':
-        case 'balanceAmount':
-          aVal = a[sortKey];
-          bVal = b[sortKey];
-          break;
-        default:
-          aVal = (a[sortKey] || '').toString().toLowerCase();
-          bVal = (b[sortKey] || '').toString().toLowerCase();
-      }
-
-      if (aVal === 0 && bVal === 0) return 0;
-      if (aVal === 0) return 1;
-      if (bVal === 0) return -1;
-
-      if (sortDirection === 'ascending') {
-        return aVal > bVal ? 1 : -1;
-      } else {
-        return aVal < bVal ? 1 : -1;
-      }
-    });
-  }, [orders, searchValue, statusFilter, sortKey, sortDirection]);
-
-  const resourceName = {
-    singular: 'order',
-    plural: 'orders',
+    
+    return <Badge status={config.status}>{config.label}</Badge>;
   };
 
-  const { selectedResources, allResourcesSelected, handleSelectionChange } =
-    useIndexResourceState(sortedAndFilteredOrders);
-
-  const handleSort = useCallback((key: SortKey) => {
-    if (sortKey === key) {
-      setSortDirection(sortDirection === 'ascending' ? 'descending' : 'ascending');
-    } else {
-      setSortKey(key);
-      setSortDirection('descending');
+  // Badge de fulfillment
+  const getFulfillmentBadge = (status) => {
+    if (!status || status === 'unfulfilled') {
+      return <Badge>Non expédié</Badge>;
     }
-  }, [sortKey, sortDirection]);
+    
+    const statusMap = {
+      'fulfilled': { status: 'success', label: 'Expédié' },
+      'partial': { status: 'warning', label: 'Partiellement expédié' }
+    };
 
-  const handleViewDetails = useCallback((order: any) => {
-    setSelectedOrder(order);
-    setShowDetailsModal(true);
-  }, []);
+    const config = statusMap[status] || { status: 'default', label: status };
+    return <Badge status={config.status}>{config.label}</Badge>;
+  };
 
-  const handleCollectBalance = useCallback((order: any) => {
-    setSelectedOrder(order);
-    setShowPaymentModal(true);
+  // Gérer la collecte du solde
+  const handleCollectBalance = useCallback((order) => {
+    setOrderToCollect(order);
+    setShowCollectModal(true);
   }, []);
 
   const confirmCollectBalance = useCallback(() => {
-    if (!selectedOrder) return;
+    if (!orderToCollect) return;
 
-    const data = new FormData();
-    data.set("_action", "collect_balance");
-    data.set("orderGid", selectedOrder.id);
-    data.set("balanceAmount", selectedOrder.balanceAmount.toString());
+    const remainingBalance = getRemainingBalance(orderToCollect);
+    
+    const formData = new FormData();
+    formData.append("action", "collectBalance");
+    formData.append("orderId", orderToCollect.id);
+    formData.append("orderName", orderToCollect.name);
+    formData.append("remainingBalance", remainingBalance);
+    formData.append("currency", orderToCollect.currency);
+    formData.append("customerEmail", orderToCollect.email || orderToCollect.customer?.email);
 
-    submit(data, { method: "post" });
-    setShowPaymentModal(false);
-    setSelectedOrder(null);
-  }, [selectedOrder, submit]);
+    submit(formData, { method: "post" });
+    setShowCollectModal(false);
+    setOrderToCollect(null);
+  }, [orderToCollect, submit]);
 
-  const calculateProcessingFee = (amount: number) => amount * 0.03;
-  const calculateTotalWithFee = (amount: number) => amount + calculateProcessingFee(amount);
+  // Préparer les données pour le DataTable
+  const rows = sortedOrders.map(order => {
+    const depositInfo = getDepositInfo(order);
+    const remainingBalance = getRemainingBalance(order);
+    const arrivalDate = getArrivalDate(order);
+    const balanceCollectionSent = isBalanceCollectionSent(order);
 
-  // Filters
-  const filters = [
-    {
-      key: 'status',
-      label: 'Payment Status',
-      filter: (
-        <ChoiceList
-          title="Payment Status"
-          titleHidden
-          choices={[
-            { label: 'Balance Paid', value: 'paid' },
-            { label: 'Balance Pending', value: 'pending' },
-          ]}
-          selected={statusFilter}
-          onChange={setStatusFilter}
-          allowMultiple
-        />
-      ),
-      shortcut: true,
-    },
-  ];
-
-  const handleClearFilters = useCallback(() => {
-    setSearchValue('');
-    setStatusFilter([]);
-  }, []);
-
-  // Table rows
-  const rowMarkup = sortedAndFilteredOrders.map((order: any, index: number) => (
-    <IndexTable.Row
-      id={order.id}
-      key={order.id}
-      selected={selectedResources.includes(order.id)}
-      position={index}
-    >
-      <IndexTable.Cell>
-        <InlineStack gap="300" blockAlign="center">
-          {order.tourImage && (
-            <Thumbnail
-              source={order.tourImage}
-              alt={order.tourName}
-              size="small"
-            />
-          )}
-          <BlockStack gap="100">
-            <Text as="span" variant="bodyMd" fontWeight="semibold">
-              {order.orderNumber}
-            </Text>
-            <Text as="span" variant="bodySm" tone="subdued">
-              {formatDateTime(order.createdAt)}
-            </Text>
-          </BlockStack>
-        </InlineStack>
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        <BlockStack gap="100">
-          <Text as="span" variant="bodyMd" fontWeight="medium">
-            {order.customerName}
-          </Text>
-          <Text as="span" variant="bodySm" tone="subdued">
-            {order.customerEmail}
-          </Text>
-          {order.customerPhone && (
-            <Text as="span" variant="bodySm" tone="subdued">
-              {order.customerPhone}
-            </Text>
-          )}
-        </BlockStack>
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        <BlockStack gap="100">
-          <Text as="span" variant="bodyMd">
-            {order.tourName}
-          </Text>
-          {order.travelers && (
-            <Text as="span" variant="bodySm" tone="subdued">
-              {order.travelers} traveler(s)
-            </Text>
-          )}
-          {order.campCategory && (
-            <Text as="span" variant="bodySm" tone="subdued">
-              {order.campCategory}
-            </Text>
-          )}
-        </BlockStack>
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        {order.arrivalDate ? (
-          <BlockStack gap="100">
-            <Text as="span" variant="bodyMd" fontWeight="medium">
-              {formatDate(order.arrivalDate)}
-            </Text>
-            {order.pickupAddress && (
-              <Text as="span" variant="bodySm" tone="subdued">
-                {order.pickupAddress}
-              </Text>
-            )}
-          </BlockStack>
-        ) : (
-          <Text as="span" tone="subdued">-</Text>
-        )}
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        <Text as="span" variant="bodyMd" alignment="end" fontWeight="semibold">
-          {formatCurrency(order.totalAmount, order.currency)}
+    return [
+      // Numéro de commande
+      <Button plain onClick={() => setSelectedOrder(order)}>
+        {order.name}
+      </Button>,
+      
+      // Client
+      order.customer ? 
+        `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim() || order.email :
+        order.email || 'Guest',
+      
+      // Date de création
+      formatDate(order.created_at),
+      
+      // Arrival Date (si existe)
+      arrivalDate ? (
+        <Text as="span" tone="success" fontWeight="semibold">
+          {formatDate(arrivalDate)}
         </Text>
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        <Text as="span" variant="bodyMd" alignment="end">
-          {formatCurrency(order.depositAmount, order.currency)}
+      ) : '-',
+      
+      // Montant total
+      `${parseFloat(order.total_price).toFixed(2)} ${order.currency}`,
+      
+      // Acompte payé (si deposit)
+      depositInfo.exists ? (
+        <Text as="span" tone="success">
+          {depositInfo.isPartiallyPaid ? 
+            "Partiel" : 
+            `${depositInfo.amount.toFixed(2)} ${order.currency}`
+          }
         </Text>
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        <BlockStack gap="100" inlineAlign="end">
-          <Text 
-            as="span" 
-            variant="bodyMd" 
-            alignment="end"
-            fontWeight="semibold"
+      ) : '-',
+      
+      // Solde restant (si deposit)
+      depositInfo.exists && remainingBalance > 0 ? (
+        <Text as="span" tone="warning" fontWeight="bold">
+          {remainingBalance.toFixed(2)} {order.currency}
+        </Text>
+      ) : '-',
+      
+      // Statut
+      getStatusBadge(order),
+      
+      // Expédition
+      getFulfillmentBadge(order.fulfillment_status),
+      
+      // Articles
+      order.line_items?.length || 0,
+      
+      // Actions
+      <InlineStack gap="200">
+        <Button 
+          plain 
+          onClick={() => window.open(`https://${shopDomain}/admin/orders/${order.id}`, '_blank')}
+        >
+          Voir
+        </Button>
+        {depositInfo.exists && remainingBalance > 0 && !balanceCollectionSent && (
+          <Button
+            primary
+            size="slim"
+            onClick={() => handleCollectBalance(order)}
           >
-            {formatCurrency(order.balanceAmount, order.currency)}
-          </Text>
-          <Badge tone={order.balancePaid ? 'success' : 'warning'}>
-            {order.balancePaid ? 'Paid' : 'Pending'}
-          </Badge>
-        </BlockStack>
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        <InlineStack gap="200" align="end">
-          <Button size="slim" onClick={() => handleViewDetails(order)}>
-            View
+            Collecter solde
           </Button>
-          {!order.balancePaid && (
-            <Button 
-              size="slim" 
-              variant="primary"
-              onClick={() => handleCollectBalance(order)}
-            >
-              Collect
-            </Button>
-          )}
-        </InlineStack>
-      </IndexTable.Cell>
-    </IndexTable.Row>
-  ));
+        )}
+        {balanceCollectionSent && (
+          <Badge status="success">Envoyé</Badge>
+        )}
+      </InlineStack>
+    ];
+  });
 
-  const emptyStateMarkup = (
-    <EmptySearchResult
-      title="No orders found"
-      description={searchValue || statusFilter.length > 0 ? "Try changing the filters or search term" : "Orders with deposits will appear here"}
-      withIllustration
-    />
-  );
+  // Calculer les statistiques
+  const stats = {
+    total: orders.length,
+    totalAmount: orders.reduce((sum, order) => sum + parseFloat(order.total_price), 0),
+    paid: orders.filter(o => o.financial_status === 'paid').length,
+    withDeposit: orders.filter(o => hasDeposit(o)).length,
+    pendingBalance: orders.reduce((sum, order) => {
+      if (hasDeposit(order)) {
+        return sum + getRemainingBalance(order);
+      }
+      return sum;
+    }, 0)
+  };
+
+  // Export CSV
+  const exportToCSV = () => {
+    const headers = [
+      'Commande',
+      'Client',
+      'Email',
+      'Date création',
+      'Date arrivée',
+      'Montant total',
+      'Acompte',
+      'Solde restant',
+      'Statut paiement',
+      'Statut expédition'
+    ];
+    
+    const csvData = sortedOrders.map(order => {
+      const depositInfo = getDepositInfo(order);
+      const arrivalDate = getArrivalDate(order);
+      const remainingBalance = getRemainingBalance(order);
+      
+      return [
+        order.name,
+        order.customer ? `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim() : '',
+        order.email || order.customer?.email || '',
+        formatDate(order.created_at),
+        arrivalDate ? formatDate(arrivalDate) : '',
+        order.total_price,
+        depositInfo.exists ? (depositInfo.isPartiallyPaid ? 'Partiel' : depositInfo.amount.toFixed(2)) : '',
+        depositInfo.exists && remainingBalance > 0 ? remainingBalance.toFixed(2) : '',
+        order.financial_status,
+        order.fulfillment_status || 'unfulfilled'
+      ];
+    });
+
+    const csv = [
+      headers.join(','),
+      ...csvData.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `commandes-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  if (error) {
+    return (
+      <Page title="Commandes">
+        <Layout>
+          <Layout.Section>
+            <Banner tone="critical" title="Erreur">
+              <p>Impossible de charger les commandes: {error}</p>
+            </Banner>
+          </Layout.Section>
+        </Layout>
+      </Page>
+    );
+  }
 
   return (
     <Page 
-      title="Deposit Orders" 
-      subtitle={`${sortedAndFilteredOrders.length} order${sortedAndFilteredOrders.length !== 1 ? 's' : ''}`}
-      fullWidth
+      title="Commandes" 
+      subtitle={`${filteredOrders.length} commande${filteredOrders.length > 1 ? 's' : ''}`}
+      primaryAction={{
+        content: 'Actualiser',
+        onAction: () => window.location.reload()
+      }}
+      secondaryActions={[
+        {
+          content: 'Exporter CSV',
+          onAction: exportToCSV
+        }
+      ]}
     >
       <Layout>
-        {actionData?.success && (
+        {/* Message de succès */}
+        {fetcher.data?.success && (
           <Layout.Section>
-            <Banner tone="success">
-              {actionData.message}
+            <Banner tone="success" title="Succès!" onDismiss={() => {}}>
+              <p>{fetcher.data.message}</p>
+              {fetcher.data.invoiceUrl && (
+                <p>
+                  <Button 
+                    plain 
+                    url={fetcher.data.invoiceUrl} 
+                    external
+                  >
+                    Voir le lien de paiement
+                  </Button>
+                </p>
+              )}
             </Banner>
           </Layout.Section>
         )}
 
-        {actionData?.errors && (
-          <Layout.Section>
-            <Banner tone="critical">
-              <BlockStack gap="200">
-                <Text as="p" fontWeight="semibold">Error:</Text>
-                {actionData.errors.map((error: any, index: number) => (
-                  <Text as="p" key={index}>{error.message}</Text>
-                ))}
-              </BlockStack>
-            </Banner>
-          </Layout.Section>
-        )}
-
+        {/* Statistiques */}
         <Layout.Section>
-          <Card padding="0">
-            <Box padding="400" paddingBlockEnd="400">
-              <Filters
-                queryValue={searchValue}
-                filters={filters}
-                onQueryChange={setSearchValue}
-                onQueryClear={() => setSearchValue('')}
-                onClearAll={handleClearFilters}
-              />
-            </Box>
+          <InlineStack gap="400" wrap={false}>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" variant="bodyMd" tone="subdued">Total commandes</Text>
+                <Text as="h2" variant="headingLg">{stats.total}</Text>
+              </BlockStack>
+            </Card>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" variant="bodyMd" tone="subdued">Montant total</Text>
+                <Text as="h2" variant="headingLg">
+                  {stats.totalAmount.toFixed(2)} {orders[0]?.currency || ''}
+                </Text>
+              </BlockStack>
+            </Card>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" variant="bodyMd" tone="subdued">Payées intégralement</Text>
+                <Text as="h2" variant="headingLg">{stats.paid}</Text>
+              </BlockStack>
+            </Card>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" variant="bodyMd" tone="subdued">Avec acompte</Text>
+                <Text as="h2" variant="headingLg">{stats.withDeposit}</Text>
+              </BlockStack>
+            </Card>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" variant="bodyMd" tone="subdued">Solde à collecter</Text>
+                <Text as="h2" variant="headingLg" tone="warning">
+                  {stats.pendingBalance.toFixed(2)} {orders[0]?.currency || ''}
+                </Text>
+              </BlockStack>
+            </Card>
+          </InlineStack>
+        </Layout.Section>
 
-            <IndexTable
-              resourceName={resourceName}
-              itemCount={sortedAndFilteredOrders.length}
-              selectedItemsCount={
-                allResourcesSelected ? 'All' : selectedResources.length
-              }
-              onSelectionChange={handleSelectionChange}
-              headings={[
-                { title: 'Order' },
-                { title: 'Customer' },
-                { title: 'Tour Details' },
-                { title: 'Arrival Date' },
-                { title: 'Total', alignment: 'end' },
-                { title: 'Deposit', alignment: 'end' },
-                { title: 'Balance', alignment: 'end' },
-                { title: 'Actions', alignment: 'end' },
-              ]}
-              sortable={[true, true, false, true, true, false, true, false]}
-              sortDirection={sortDirection}
-              sortColumnIndex={
-                sortKey === 'orderNumber' ? 0 :
-                sortKey === 'customerName' ? 1 :
-                sortKey === 'arrivalDate' ? 3 :
-                sortKey === 'totalAmount' ? 4 :
-                sortKey === 'balanceAmount' ? 6 : undefined
-              }
-              onSort={(headingIndex) => {
-                const keys: SortKey[] = ['orderNumber', 'customerName', 'tourName', 'arrivalDate', 'totalAmount', 'depositAmount', 'balanceAmount'];
-                handleSort(keys[headingIndex]);
-              }}
-            >
-              {rowMarkup.length > 0 ? rowMarkup : emptyStateMarkup}
-            </IndexTable>
+        {/* Filtres */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <InlineStack gap="400" align="space-between" wrap={false}>
+                <div style={{ flex: 1, minWidth: '200px' }}>
+                  <TextField
+                    label="Rechercher"
+                    value={searchValue}
+                    onChange={setSearchValue}
+                    placeholder="Numéro, client, email..."
+                    autoComplete="off"
+                    clearButton
+                    onClearButtonClick={() => setSearchValue("")}
+                  />
+                </div>
+                <div style={{ width: '180px' }}>
+                  <Select
+                    label="Statut"
+                    options={[
+                      { label: 'Tous', value: 'all' },
+                      { label: 'Payé', value: 'paid' },
+                      { label: 'Acompte payé', value: 'partially_paid' },
+                      { label: 'En attente', value: 'pending' },
+                      { label: 'Autorisé', value: 'authorized' },
+                      { label: 'Remboursé', value: 'refunded' }
+                    ]}
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                  />
+                </div>
+                <div style={{ width: '180px' }}>
+                  <Select
+                    label="Période"
+                    options={[
+                      { label: 'Toutes', value: 'all' },
+                      { label: "Aujourd'hui", value: 'today' },
+                      { label: '7 derniers jours', value: 'week' },
+                      { label: '30 derniers jours', value: 'month' }
+                    ]}
+                    value={dateFilter}
+                    onChange={setDateFilter}
+                  />
+                </div>
+              </InlineStack>
+            </BlockStack>
           </Card>
         </Layout.Section>
-      </Layout>
 
-      {/* Order Details Modal */}
-      <Modal
-        large
-        open={showDetailsModal}
-        onClose={() => {
-          setShowDetailsModal(false);
-          setSelectedOrder(null);
-        }}
-        title={`Order ${selectedOrder?.orderNumber || ''}`}
-      >
-        {selectedOrder && (
-          <Modal.Section>
-            <BlockStack gap="400">
-              <Card>
-                <BlockStack gap="300">
-                  <Text as="h3" variant="headingMd">Customer Information</Text>
-                  <Divider />
-                  <InlineStack gap="400">
-                    <Box minWidth="150px">
-                      <Text as="p" tone="subdued">Name:</Text>
-                    </Box>
-                    <Text as="p" fontWeight="semibold">{selectedOrder.customerName}</Text>
-                  </InlineStack>
-                  <InlineStack gap="400">
-                    <Box minWidth="150px">
-                      <Text as="p" tone="subdued">Email:</Text>
-                    </Box>
-                    <Text as="p">{selectedOrder.customerEmail}</Text>
-                  </InlineStack>
-                  {selectedOrder.customerPhone && (
-                    <InlineStack gap="400">
-                      <Box minWidth="150px">
-                        <Text as="p" tone="subdued">Phone:</Text>
-                      </Box>
-                      <Text as="p">{selectedOrder.customerPhone}</Text>
-                    </InlineStack>
-                  )}
-                </BlockStack>
-              </Card>
+        {/* Table des commandes */}
+        <Layout.Section>
+          <Card padding="0">
+            {filteredOrders.length === 0 ? (
+              <EmptyState
+                heading="Aucune commande trouvée"
+                image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+              >
+                <p>Essayez de modifier vos filtres de recherche</p>
+              </EmptyState>
+            ) : (
+              <DataTable
+                columnContentTypes={[
+                  'text',      // Commande
+                  'text',      // Client
+                  'text',      // Date création
+                  'text',      // Arrival date
+                  'numeric',   // Montant
+                  'numeric',   // Acompte
+                  'numeric',   // Solde restant
+                  'text',      // Statut paiement
+                  'text',      // Statut expédition
+                  'numeric',   // Items
+                  'text'       // Actions
+                ]}
+                headings={[
+                  'Commande',
+                  'Client',
+                  'Date création',
+                  'Date arrivée',
+                  'Montant total',
+                  'Acompte',
+                  'Solde restant',
+                  'Paiement',
+                  'Expédition',
+                  'Articles',
+                  'Actions'
+                ]}
+                rows={rows}
+                hoverable
+                verticalAlign="middle"
+              />
+            )}
+          </Card>
+        </Layout.Section>
 
-              <Card>
-                <BlockStack gap="300">
-                  <Text as="h3" variant="headingMd">Tour Information</Text>
-                  <Divider />
-                  <InlineStack gap="400">
-                    <Box minWidth="150px">
-                      <Text as="p" tone="subdued">Tour:</Text>
-                    </Box>
-                    <Text as="p" fontWeight="semibold">{selectedOrder.tourName}</Text>
-                  </InlineStack>
-                  {selectedOrder.travelers && (
-                    <InlineStack gap="400">
-                      <Box minWidth="150px">
-                        <Text as="p" tone="subdued">Travelers:</Text>
-                      </Box>
-                      <Text as="p">{selectedOrder.travelers}</Text>
-                    </InlineStack>
-                  )}
-                  {selectedOrder.arrivalDate && (
-                    <InlineStack gap="400">
-                      <Box minWidth="150px">
-                        <Text as="p" tone="subdued">Arrival Date:</Text>
-                      </Box>
-                      <Text as="p" fontWeight="medium">{formatDate(selectedOrder.arrivalDate)}</Text>
-                    </InlineStack>
-                  )}
-                  {selectedOrder.pickupAddress && (
-                    <InlineStack gap="400">
-                      <Box minWidth="150px">
-                        <Text as="p" tone="subdued">Pickup:</Text>
-                      </Box>
-                      <Text as="p">{selectedOrder.pickupAddress}</Text>
-                    </InlineStack>
-                  )}
-                  {selectedOrder.campCategory && (
-                    <InlineStack gap="400">
-                      <Box minWidth="150px">
-                        <Text as="p" tone="subdued">Category:</Text>
-                      </Box>
-                      <Text as="p">{selectedOrder.campCategory}</Text>
-                    </InlineStack>
-                  )}
-                </BlockStack>
-              </Card>
-
-              <Card>
-                <BlockStack gap="300">
-                  <Text as="h3" variant="headingMd">Payment Information</Text>
-                  <Divider />
-                  <InlineStack align="space-between">
-                    <Text as="p" tone="subdued">Total Amount:</Text>
-                    <Text as="p" variant="headingMd" fontWeight="semibold">
-                      {formatCurrency(selectedOrder.totalAmount, selectedOrder.currency)}
-                    </Text>
-                  </InlineStack>
-                  <InlineStack align="space-between">
-                    <Text as="p" tone="subdued">Deposit Paid:</Text>
-                    <Text as="p" fontWeight="medium">
-                      {formatCurrency(selectedOrder.depositAmount, selectedOrder.currency)}
-                    </Text>
-                  </InlineStack>
-                  <Divider />
-                  <InlineStack align="space-between">
-                    <Text as="p" fontWeight="semibold">Remaining Balance:</Text>
-                    <Text as="p" variant="headingMd" fontWeight="bold">
-                      {formatCurrency(selectedOrder.balanceAmount, selectedOrder.currency)}
-                    </Text>
-                  </InlineStack>
-                  <Box paddingBlockStart="200">
-                    <Badge tone={selectedOrder.balancePaid ? 'success' : 'warning'} size="large">
-                      {selectedOrder.balancePaid ? 'Balance Paid' : 'Balance Pending'}
-                    </Badge>
-                  </Box>
-                </BlockStack>
-              </Card>
-            </BlockStack>
-          </Modal.Section>
-        )}
-      </Modal>
-
-      {/* Payment Collection Modal */}
-      <Modal
-        open={showPaymentModal}
-        onClose={() => {
-          setShowPaymentModal(false);
-          setSelectedOrder(null);
-        }}
-        title="Collect Remaining Balance"
-        primaryAction={{
-          content: 'Send Payment Request',
-          onAction: confirmCollectBalance,
-          loading: isLoading,
-        }}
-        secondaryActions={[
-          {
-            content: 'Cancel',
-            onAction: () => {
-              setShowPaymentModal(false);
-              setSelectedOrder(null);
-            },
-          },
-        ]}
-      >
-        {selectedOrder && (
-          <>
+        {/* Modal de confirmation pour collecter le solde */}
+        {showCollectModal && orderToCollect && (
+          <Modal
+            open={showCollectModal}
+            onClose={() => {
+              setShowCollectModal(false);
+              setOrderToCollect(null);
+            }}
+            title="Collecter le solde restant"
+            primaryAction={{
+              content: 'Envoyer le lien de paiement',
+              onAction: confirmCollectBalance,
+              loading: fetcher.state === "submitting"
+            }}
+            secondaryActions={[
+              {
+                content: 'Annuler',
+                onAction: () => {
+                  setShowCollectModal(false);
+                  setOrderToCollect(null);
+                }
+              }
+            ]}
+          >
             <Modal.Section>
-              <Banner tone="info">
-                <Text as="p">A 3% processing fee will be added to the balance amount.</Text>
-              </Banner>
-            </Modal.Section>
-
-            <Modal.Section>
-              <BlockStack gap="300">
-                <Text as="h3" variant="headingMd">
-                  Order {selectedOrder.orderNumber}
+              <BlockStack gap="400">
+                <Text variant="bodyMd">
+                  Vous allez créer un lien de paiement pour le solde restant de la commande <strong>{orderToCollect.name}</strong>.
                 </Text>
-                <Divider />
                 
+                <Card>
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between">
+                      <Text>Montant total:</Text>
+                      <Text fontWeight="bold">
+                        {parseFloat(orderToCollect.total_price).toFixed(2)} {orderToCollect.currency}
+                      </Text>
+                    </InlineStack>
+                    <InlineStack align="space-between">
+                      <Text>Acompte payé:</Text>
+                      <Text tone="success">
+                        {getDepositInfo(orderToCollect).isPartiallyPaid ? 
+                          'Paiement partiel effectué' :
+                          `${getDepositInfo(orderToCollect).amount.toFixed(2)} ${orderToCollect.currency}`
+                        }
+                      </Text>
+                    </InlineStack>
+                    <InlineStack align="space-between">
+                      <Text>Solde restant:</Text>
+                      <Text fontWeight="bold" tone="warning">
+                        {getRemainingBalance(orderToCollect).toFixed(2)} {orderToCollect.currency}
+                      </Text>
+                    </InlineStack>
+                  </BlockStack>
+                </Card>
+                
+                <Text variant="bodyMd" tone="subdued">
+                  Un lien de paiement sera envoyé à: <strong>{orderToCollect.email || orderToCollect.customer?.email}</strong>
+                </Text>
+              </BlockStack>
+            </Modal.Section>
+          </Modal>
+        )}
+
+        {/* Modal détails de commande */}
+        {selectedOrder && (
+          <Modal
+            large
+            open={!!selectedOrder}
+            onClose={() => setSelectedOrder(null)}
+            title={`Commande ${selectedOrder.name}`}
+            secondaryActions={[
+              {
+                content: 'Fermer',
+                onAction: () => setSelectedOrder(null)
+              }
+            ]}
+          >
+            <Modal.Section>
+              <BlockStack gap="500">
+                {/* Infos client */}
                 <BlockStack gap="200">
-                  <Text as="p" tone="subdued">Customer: {selectedOrder.customerEmail}</Text>
-                  
-                  <InlineStack align="space-between">
-                    <Text as="p">Remaining Balance:</Text>
-                    <Text as="p" fontWeight="semibold">
-                      {formatCurrency(selectedOrder.balanceAmount, selectedOrder.currency)}
-                    </Text>
-                  </InlineStack>
-                  
-                  <InlineStack align="space-between">
-                    <Text as="p" tone="subdued">Processing Fee (3%):</Text>
-                    <Text as="p" tone="subdued">
-                      {formatCurrency(calculateProcessingFee(selectedOrder.balanceAmount), selectedOrder.currency)}
-                    </Text>
-                  </InlineStack>
-                  
-                  <Divider />
-                  
-                  <InlineStack align="space-between">
-                    <Text as="p" variant="headingMd" fontWeight="bold">Total to Collect:</Text>
-                    <Text as="p" variant="headingMd" fontWeight="bold">
-                      {formatCurrency(calculateTotalWithFee(selectedOrder.balanceAmount), selectedOrder.currency)}
-                    </Text>
-                  </InlineStack>
+                  <Text variant="headingMd">Client</Text>
+                  <Card>
+                    <BlockStack gap="200">
+                      <Text>
+                        {selectedOrder.customer?.first_name} {selectedOrder.customer?.last_name}
+                      </Text>
+                      <Text tone="subdued">{selectedOrder.email || selectedOrder.customer?.email}</Text>
+                    </BlockStack>
+                  </Card>
+                </BlockStack>
+
+                {/* Infos dates */}
+                <BlockStack gap="200">
+                  <Text variant="headingMd">Dates</Text>
+                  <Card>
+                    <BlockStack gap="200">
+                      <InlineStack align="space-between">
+                        <Text>Date de création:</Text>
+                        <Text>{formatDate(selectedOrder.created_at)}</Text>
+                      </InlineStack>
+                      {getArrivalDate(selectedOrder) && (
+                        <InlineStack align="space-between">
+                          <Text>Date d'arrivée:</Text>
+                          <Text tone="success" fontWeight="semibold">
+                            {formatDate(getArrivalDate(selectedOrder))}
+                          </Text>
+                        </InlineStack>
+                      )}
+                    </BlockStack>
+                  </Card>
+                </BlockStack>
+
+                {/* Articles */}
+                <BlockStack gap="200">
+                  <Text variant="headingMd">Articles ({selectedOrder.line_items?.length || 0})</Text>
+                  <Card>
+                    <BlockStack gap="300">
+                      {selectedOrder.line_items?.map(item => (
+                        <InlineStack key={item.id} align="space-between">
+                          <BlockStack gap="100">
+                            <Text fontWeight="semibold">{item.name}</Text>
+                            <Text tone="subdued">Quantité: {item.quantity}</Text>
+                          </BlockStack>
+                          <Text>{parseFloat(item.price).toFixed(2)} {selectedOrder.currency}</Text>
+                        </InlineStack>
+                      ))}
+                    </BlockStack>
+                  </Card>
+                </BlockStack>
+
+                {/* Montants */}
+                <BlockStack gap="200">
+                  <Text variant="headingMd">Montants</Text>
+                  <Card>
+                    <BlockStack gap="200">
+                      <InlineStack align="space-between">
+                        <Text>Montant total:</Text>
+                        <Text fontWeight="bold">
+                          {parseFloat(selectedOrder.total_price).toFixed(2)} {selectedOrder.currency}
+                        </Text>
+                      </InlineStack>
+                      
+                      {hasDeposit(selectedOrder) && (
+                        <>
+                          <InlineStack align="space-between">
+                            <Text>Acompte payé:</Text>
+                            <Text tone="success">
+                              {getDepositInfo(selectedOrder).isPartiallyPaid ?
+                                'Paiement partiel' :
+                                `${getDepositInfo(selectedOrder).amount.toFixed(2)} ${selectedOrder.currency}`
+                              }
+                            </Text>
+                          </InlineStack>
+                          <InlineStack align="space-between">
+                            <Text fontWeight="semibold">Solde restant:</Text>
+                            <Text fontWeight="bold" tone="warning">
+                              {getRemainingBalance(selectedOrder).toFixed(2)} {selectedOrder.currency}
+                            </Text>
+                          </InlineStack>
+                        </>
+                      )}
+                    </BlockStack>
+                  </Card>
+                </BlockStack>
+
+                {/* Statuts */}
+                <BlockStack gap="200">
+                  <Text variant="headingMd">Statuts</Text>
+                  <Card>
+                    <BlockStack gap="200">
+                      <InlineStack align="space-between">
+                        <Text>Paiement:</Text>
+                        {getStatusBadge(selectedOrder)}
+                      </InlineStack>
+                      <InlineStack align="space-between">
+                        <Text>Expédition:</Text>
+                        {getFulfillmentBadge(selectedOrder.fulfillment_status)}
+                      </InlineStack>
+                    </BlockStack>
+                  </Card>
                 </BlockStack>
               </BlockStack>
             </Modal.Section>
-
-            <Modal.Section>
-              <Banner>
-                <BlockStack gap="200">
-                  <Text as="p" fontWeight="semibold">What happens next:</Text>
-                  <BlockStack gap="100">
-                    <Text as="p">• A 3% processing fee will be added to the order</Text>
-                    <Text as="p">• Customer will receive an email with a payment link</Text>
-                    <Text as="p">• They can pay the outstanding balance via Shopify checkout</Text>
-                    <Text as="p">• Order will be automatically updated when payment is received</Text>
-                  </BlockStack>
-                </BlockStack>
-              </Banner>
-            </Modal.Section>
-          </>
+          </Modal>
         )}
-      </Modal>
+      </Layout>
     </Page>
   );
 }
