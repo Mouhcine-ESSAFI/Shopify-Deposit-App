@@ -27,12 +27,12 @@ export default function App() {
         <Link to="/app/orders">
           Orders
         </Link>
-        <Link to="/app/setup-webhooks">
+        {/* <Link to="/app/setup-webhooks">
           Setup Webhooks
         </Link>
         <Link to="/app/verify-webhooks">
           Verify Webhooks
-        </Link>
+        </Link> */}
       </ui-nav-menu>
       <Outlet />
     </AppProvider>
