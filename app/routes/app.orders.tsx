@@ -223,169 +223,6 @@ const GET_ORDERS_QUERY = `
   }
 `;
 
-// Query for fetching single order details
-const GET_ORDER_DETAILS_QUERY = `
-  query getOrderDetails($id: ID!) {
-    order(id: $id) {
-      id
-      name
-      createdAt
-      updatedAt
-      displayFinancialStatus
-      displayFulfillmentStatus
-      totalPriceSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-      currentTotalPriceSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-      subtotalPriceSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-      totalShippingPriceSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-      totalTaxSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-      totalDiscountsSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-      customer {
-        id
-        firstName
-        lastName
-        email
-        phone
-        numberOfOrders
-        totalSpentV2 {
-          amount
-          currencyCode
-        }
-      }
-      shippingAddress {
-        address1
-        address2
-        city
-        province
-        provinceCode
-        country
-        countryCodeV2
-        zip
-        name
-        phone
-      }
-      billingAddress {
-        address1
-        address2
-        city
-        province
-        provinceCode
-        country
-        countryCodeV2
-        zip
-        name
-        phone
-      }
-      lineItems(first: 100) {
-        edges {
-          node {
-            id
-            title
-            quantity
-            sku
-            variantTitle
-            vendor
-            variant {
-              id
-              title
-              price
-              image {
-                url
-                altText
-              }
-            }
-            originalUnitPriceSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
-            }
-            discountedUnitPriceSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
-            }
-            customAttributes {
-              key
-              value
-            }
-          }
-        }
-      }
-      fulfillments {
-        id
-        status
-        createdAt
-        trackingCompany
-        trackingNumbers
-        trackingUrls
-      }
-      transactions(first: 20) {
-        id
-        kind
-        status
-        createdAt
-        test
-        amountSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
-        }
-        gateway
-      }
-      customAttributes {
-        key
-        value
-      }
-      tags
-      note
-      cancelledAt
-      cancelReason
-      refunds(first: 10) {
-        id
-        createdAt
-        totalRefundedSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
-        }
-      }
-    }
-  }
-`;
-
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   
@@ -687,38 +524,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
   }
   
-  if (action === "fetchOrderDetails") {
-    try {
-      const response = await admin.graphql(GET_ORDER_DETAILS_QUERY, {
-        variables: { id: orderId }
-      });
-      
-      const data = await response.json();
-      const order = data.data?.order;
-      
-      if (!order) {
-        throw new Error("Order not found");
-      }
-      
-      // Transform the detailed order data
-      const detailedOrder = {
-        ...order,
-        lineItems: order.lineItems.edges.map((e: any) => e.node),
-      };
-      
-      return json({ 
-        success: true, 
-        order: detailedOrder 
-      });
-      
-    } catch (error: any) {
-      return json({ 
-        success: false, 
-        message: `Failed to fetch order details: ${error.message}` 
-      }, { status: 400 });
-    }
-  }
-  
   return json({ success: false, message: "Unknown action" }, { status: 400 });
 };
 
@@ -808,7 +613,6 @@ export default function OrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [loadingOrderDetails, setLoadingOrderDetails] = useState(false);
   const [detailedOrder, setDetailedOrder] = useState<any>(null);
   
   // Filter states
@@ -887,30 +691,11 @@ export default function OrdersPage() {
     }
   }, [sortKey, sortDirection]);
   
-  const handleViewDetails = useCallback(async (order: any) => {
+  const handleViewDetails = useCallback((order: any) => {
     setSelectedOrder(order);
     setShowDetailsModal(true);
-    setLoadingOrderDetails(true);
-    
-    // Fetch detailed order information
-    const formData = new FormData();
-    formData.append("action", "fetchOrderDetails");
-    formData.append("orderId", order.id);
-    
-    try {
-      const response = await fetch(window.location.href, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await response.json();
-      if (data.success) {
-        setDetailedOrder(data.order);
-      }
-    } catch (error) {
-      console.error("Failed to fetch order details:", error);
-    } finally {
-      setLoadingOrderDetails(false);
-    }
+    // We already have all order details from the loader, no need to fetch again
+    setDetailedOrder(order);
   }, []);
   
   const handleCollectBalance = useCallback((order: any) => {
@@ -1301,15 +1086,8 @@ export default function OrdersPage() {
       >
         {selectedOrder && (
           <Modal.Section>
-            {loadingOrderDetails ? (
-              <Box padding="400">
-                <InlineStack align="center">
-                  <Spinner size="large" />
-                </InlineStack>
-              </Box>
-            ) : (
-              <BlockStack gap="400">
-                {/* Customer Information */}
+            <BlockStack gap="400">
+              {/* Customer Information */}
                 <Card>
                   <BlockStack gap="300">
                     <Text as="h3" variant="headingMd">Customer Information</Text>
@@ -1673,7 +1451,6 @@ export default function OrdersPage() {
                   </BlockStack>
                 </Card>
               </BlockStack>
-            )}
           </Modal.Section>
         )}
       </Modal>
