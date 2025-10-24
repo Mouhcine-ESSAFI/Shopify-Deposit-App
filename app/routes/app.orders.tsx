@@ -23,6 +23,8 @@ import {
   Thumbnail,
   Pagination,
   Spinner,
+  TextField,
+  Select,
 } from "@shopify/polaris";
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { authenticate } from "../shopify.server";
@@ -435,14 +437,25 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       orderCustomAttributes[attr.key] = attr.value;
     });
     
-    // Extract custom attributes from first line item
+    // Extract custom attributes from ALL line items (not just first)
     const itemCustomAttributes: Record<string, string> = {};
-    firstItem?.customAttributes?.forEach((attr: any) => {
-      itemCustomAttributes[attr.key] = attr.value;
+    lineItems.forEach((edge: any) => {
+      edge.node.customAttributes?.forEach((attr: any) => {
+        // Store with both original key and normalized key
+        itemCustomAttributes[attr.key] = attr.value;
+        // Also store with lowercase/underscore version for better matching
+        const normalizedKey = attr.key.toLowerCase().replace(/\s+/g, '_');
+        itemCustomAttributes[normalizedKey] = attr.value;
+      });
     });
     
     // Merge attributes (item attributes take precedence)
     const customAttributes = { ...orderCustomAttributes, ...itemCustomAttributes };
+    
+    // Debug: Log custom attributes to see what we're getting
+    if (Object.keys(customAttributes).length > 0) {
+      console.log(`Order ${node.name} custom attributes:`, customAttributes);
+    }
     
     // Calculate deposit info more accurately
     const totalAmount = parseFloat(node.currentTotalPriceSet.shopMoney.amount);
@@ -504,9 +517,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         customAttributes: item.node.customAttributes,
       })),
       
-      // Custom attributes from tours
-      arrivalDate: customAttributes['Arrival Date'] || customAttributes['arrival_date'] || '',
-      departureDate: customAttributes['Departure Date'] || customAttributes['departure_date'] || '',
+      // Custom attributes from tours - check multiple variations
+      arrivalDate: customAttributes['Arrival Date'] || 
+                   customAttributes['arrival_date'] || 
+                   customAttributes['Arrival date'] ||
+                   customAttributes['arrival date'] ||
+                   customAttributes['Date_arrivée'] ||
+                   customAttributes['date_arrivée'] || '',
+      departureDate: customAttributes['Departure Date'] || 
+                     customAttributes['departure_date'] ||
+                     customAttributes['Departure date'] ||
+                     customAttributes['departure date'] || '',
       pickupAddress: customAttributes['Pickup Address'] || customAttributes['pickup_address'] || '',
       dropoffAddress: customAttributes['Dropoff Address'] || customAttributes['dropoff_address'] || '',
       campCategory: customAttributes['Camp Category'] || customAttributes['camp_category'] || '',
@@ -719,12 +740,41 @@ function formatCurrency(amount: number, currency: string): string {
 
 function formatDate(dateString: string): string {
   if (!dateString) return '';
-  const date = new Date(dateString);
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(date);
+  try {
+    // Handle various date formats
+    let date: Date;
+    
+    // Check if it's already a valid date string
+    if (dateString.includes('T') || dateString.includes('-')) {
+      date = new Date(dateString);
+    } else if (dateString.includes('/')) {
+      // Handle MM/DD/YYYY or DD/MM/YYYY format
+      const parts = dateString.split('/');
+      if (parts.length === 3) {
+        // Assume MM/DD/YYYY format
+        date = new Date(`${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`);
+      } else {
+        date = new Date(dateString);
+      }
+    } else {
+      date = new Date(dateString);
+    }
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      console.warn('Invalid date format:', dateString);
+      return dateString; // Return original string if can't parse
+    }
+    
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }).format(date);
+  } catch (error) {
+    console.error('Date formatting error:', error, dateString);
+    return dateString;
+  }
 }
 
 function formatDateTime(dateString: string): string {
@@ -779,48 +829,44 @@ export default function OrdersPage() {
   const { selectedResources, allResourcesSelected, handleSelectionChange, clearSelection } = 
     useIndexResourceState(orders);
   
-  // Filter and sort orders
+  // Filter orders (but don't re-paginate, use server pagination)
   const filteredOrders = useMemo(() => {
     let filtered = [...orders];
     
-    // Apply search filter
-    if (searchValue) {
-      const search = searchValue.toLowerCase();
-      filtered = filtered.filter(order =>
-        order.orderNumber.toLowerCase().includes(search) ||
-        order.customerName.toLowerCase().includes(search) ||
-        order.customerEmail.toLowerCase().includes(search) ||
-        order.tourName.toLowerCase().includes(search)
-      );
-    }
+    // Note: Search and status filters should be handled server-side via URL params
+    // This local filtering is just for display while waiting for server response
     
-    // Apply status filter
-    if (statusFilter.length > 0 && !statusFilter.includes('all')) {
-      filtered = filtered.filter(order => {
-        if (statusFilter.includes('paid') && order.balancePaid) return true;
-        if (statusFilter.includes('pending') && !order.balancePaid) return true;
-        if (statusFilter.includes('deposit') && order.depositAmount > 0) return true;
-        return false;
-      });
-    }
-    
-    // Apply date filter
-    if (dateFilter) {
-      const filterDate = new Date(dateFilter);
-      filtered = filtered.filter(order => {
-        const arrivalDate = order.arrivalDate ? new Date(order.arrivalDate) : null;
-        return arrivalDate && arrivalDate >= filterDate;
-      });
-    }
-    
-    // Sort
+    // Sort only (no filtering as it should be done server-side)
     filtered.sort((a, b) => {
       let aValue: any = a[sortKey];
       let bValue: any = b[sortKey];
       
+      // Special handling for arrival date - sort by proximity to today
+      if (sortKey === 'arrivalDate') {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const aDate = aValue ? new Date(aValue) : new Date('9999-12-31');
+        const bDate = bValue ? new Date(bValue) : new Date('9999-12-31');
+        
+        // If sorting ascending, show dates closest to today first
+        if (sortDirection === 'ascending') {
+          // Dates in the future come first, sorted by proximity to today
+          const aDiff = aDate >= today ? Math.abs(aDate.getTime() - today.getTime()) : Number.MAX_VALUE;
+          const bDiff = bDate >= today ? Math.abs(bDate.getTime() - today.getTime()) : Number.MAX_VALUE;
+          return aDiff - bDiff;
+        } else {
+          // Descending: furthest dates first
+          if (aDate < bDate) return 1;
+          if (aDate > bDate) return -1;
+          return 0;
+        }
+      }
+      
+      // Regular sorting for other fields
       if (typeof aValue === 'string') {
         aValue = aValue.toLowerCase();
-        bValue = bValue.toLowerCase();
+        bValue = bValue?.toLowerCase() || '';
       }
       
       if (aValue < bValue) return sortDirection === 'ascending' ? -1 : 1;
@@ -829,7 +875,7 @@ export default function OrdersPage() {
     });
     
     return filtered;
-  }, [orders, searchValue, statusFilter, dateFilter, sortKey, sortDirection]);
+  }, [orders, sortKey, sortDirection]);
   
   // Handlers
   const handleSort = useCallback((key: SortKey) => {
@@ -901,15 +947,19 @@ export default function OrdersPage() {
   
   const handleSearch = useCallback((value: string) => {
     setSearchValue(value);
+    // Don't navigate on every keystroke, user should press enter or click search
+  }, []);
+  
+  const handleSearchSubmit = useCallback(() => {
     const params = new URLSearchParams(searchParams);
-    if (value) {
-      params.set("search", value);
+    if (searchValue) {
+      params.set("search", searchValue);
     } else {
       params.delete("search");
     }
     params.delete("cursor"); // Reset to first page
     navigate(`?${params.toString()}`);
-  }, [searchParams, navigate]);
+  }, [searchValue, searchParams, navigate]);
   
   const handleStatusFilterChange = useCallback((value: string[]) => {
     setStatusFilter(value);
@@ -930,6 +980,35 @@ export default function OrdersPage() {
     setDateFilter("");
     navigate("?");
   }, [navigate]);
+  
+  // Applied filters for display
+  const appliedFilters: Array<{key: string; label: string; onRemove: () => void}> = [];
+  if (searchValue && searchParams.get("search")) {
+    appliedFilters.push({
+      key: 'search',
+      label: `Search: ${searchValue}`,
+      onRemove: () => {
+        setSearchValue('');
+        const params = new URLSearchParams(searchParams);
+        params.delete("search");
+        params.delete("cursor");
+        navigate(`?${params.toString()}`);
+      },
+    });
+  }
+  if (statusFilter.length > 0 && !statusFilter.includes('all')) {
+    appliedFilters.push({
+      key: 'status',
+      label: `Status: ${statusFilter[0]}`,
+      onRemove: () => {
+        setStatusFilter(['all']);
+        const params = new URLSearchParams(searchParams);
+        params.delete("status");
+        params.delete("cursor");
+        navigate(`?${params.toString()}`);
+      },
+    });
+  }
   
   // Effect to show action result
   useEffect(() => {
@@ -987,14 +1066,14 @@ export default function OrdersPage() {
         {order.arrivalDate ? (
           <Box>
             <Badge tone="info">{formatDate(order.arrivalDate)}</Badge>
-            {order.departureDate && (
+            {order.departureDate && order.departureDate !== order.arrivalDate && (
               <Text as="p" tone="subdued" variant="bodySm">
                 to {formatDate(order.departureDate)}
               </Text>
             )}
           </Box>
         ) : (
-          <Text tone="subdued">—</Text>
+          <Text tone="subdued" variant="bodySm">No date</Text>
         )}
       </IndexTable.Cell>
       
@@ -1058,54 +1137,18 @@ export default function OrdersPage() {
     />
   );
   
-  // Filters markup
-  const filters = [
-    {
-      key: 'status',
-      label: 'Payment Status',
-      filter: (
-        <ChoiceList
-          title="Payment Status"
-          titleHidden
-          choices={[
-            { label: 'All', value: 'all' },
-            { label: 'Paid', value: 'paid' },
-            { label: 'Has Deposit', value: 'deposit' },
-            { label: 'Balance Pending', value: 'pending' },
-          ]}
-          selected={statusFilter}
-          onChange={handleStatusFilterChange}
-          allowMultiple={false}
-        />
-      ),
-      shortcut: true,
-    },
-  ];
-  
-  const appliedFilters = [];
-  if (searchValue) {
-    appliedFilters.push({
-      key: 'search',
-      label: `Search: ${searchValue}`,
-      onRemove: () => handleSearch(''),
-    });
-  }
-  if (statusFilter.length > 0 && !statusFilter.includes('all')) {
-    appliedFilters.push({
-      key: 'status',
-      label: `Status: ${statusFilter.join(', ')}`,
-      onRemove: () => handleStatusFilterChange(['all']),
-    });
-  }
+  // Clear filters
+  const handleClearFilters = useCallback(() => {
+    setSearchValue("");
+    setStatusFilter(["all"]);
+    setDateFilter("");
+    navigate("?");
+  }, [navigate]);
   
   return (
     <Page
       title="Tour Orders Management"
-      subtitle={`${stats.totalOrders} orders • ${formatCurrency(stats.totalRevenue, 'MAD')} total revenue`}
-      primaryAction={{
-        content: 'Refresh',
-        onAction: () => window.location.reload(),
-      }}
+      subtitle={`${filteredOrders.length} orders found`}
     >
       <Layout>
         {actionData?.message && (
@@ -1116,69 +1159,84 @@ export default function OrdersPage() {
           </Layout.Section>
         )}
         
-        {/* Statistics Cards */}
-        <Layout.Section>
-          <InlineStack gap="400" wrap>
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" tone="subdued">Total Orders</Text>
-                <Text as="h2" variant="headingLg">{stats.totalOrders}</Text>
-              </BlockStack>
-            </Card>
-            
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" tone="subdued">Total Revenue</Text>
-                <Text as="h2" variant="headingLg">
-                  {formatCurrency(stats.totalRevenue, 'MAD')}
-                </Text>
-              </BlockStack>
-            </Card>
-            
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" tone="subdued">Total Deposits</Text>
-                <Text as="h2" variant="headingLg" tone="success">
-                  {formatCurrency(stats.totalDeposits, 'MAD')}
-                </Text>
-              </BlockStack>
-            </Card>
-            
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" tone="subdued">Pending Balance</Text>
-                <Text as="h2" variant="headingLg" tone="warning">
-                  {formatCurrency(stats.totalBalance, 'MAD')}
-                </Text>
-              </BlockStack>
-            </Card>
-            
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" tone="subdued">Orders with Balance</Text>
-                <Text as="h2" variant="headingLg">{stats.ordersWithBalance}</Text>
-              </BlockStack>
-            </Card>
-          </InlineStack>
-        </Layout.Section>
-        
         {/* Filters and Search */}
         <Layout.Section>
           <Card>
-            <Filters
-              queryValue={searchValue}
-              queryPlaceholder="Search orders, customers, or tours..."
-              onQueryChange={handleSearch}
-              onQueryClear={() => handleSearch('')}
-              filters={filters}
-              appliedFilters={appliedFilters}
-              onClearAll={handleClearFilters}
-            />
+            <BlockStack gap="400">
+              <InlineStack gap="400" align="end">
+                <div style={{ flex: 1 }}>
+                  <TextField
+                    label="Search"
+                    labelHidden
+                    value={searchValue}
+                    onChange={(value) => setSearchValue(value)}
+                    placeholder="Search orders, customers, or tours..."
+                    autoComplete="off"
+                    clearButton
+                    onClearButtonClick={() => {
+                      setSearchValue('');
+                      const params = new URLSearchParams(searchParams);
+                      params.delete("search");
+                      params.delete("cursor");
+                      navigate(`?${params.toString()}`);
+                    }}
+                    connectedRight={
+                      <Button onClick={() => {
+                        const params = new URLSearchParams(searchParams);
+                        if (searchValue) {
+                          params.set("search", searchValue);
+                        } else {
+                          params.delete("search");
+                        }
+                        params.delete("cursor");
+                        navigate(`?${params.toString()}`);
+                      }}>
+                        Search
+                      </Button>
+                    }
+                  />
+                </div>
+                <Select
+                  label="Status"
+                  labelHidden
+                  options={[
+                    { label: 'All Orders', value: 'all' },
+                    { label: 'Paid', value: 'paid' },
+                    { label: 'Has Deposit', value: 'deposit' },
+                    { label: 'Balance Pending', value: 'pending' },
+                  ]}
+                  value={statusFilter[0]}
+                  onChange={(value) => {
+                    setStatusFilter([value]);
+                    const params = new URLSearchParams(searchParams);
+                    if (value !== 'all') {
+                      params.set("status", value);
+                    } else {
+                      params.delete("status");
+                    }
+                    params.delete("cursor");
+                    navigate(`?${params.toString()}`);
+                  }}
+                />
+              </InlineStack>
+              {appliedFilters.length > 0 && (
+                <InlineStack gap="200">
+                  {appliedFilters.map((filter) => (
+                    <Badge key={filter.key} onRemove={filter.onRemove}>
+                      {filter.label}
+                    </Badge>
+                  ))}
+                  <Button plain onClick={handleClearFilters}>
+                    Clear all
+                  </Button>
+                </InlineStack>
+              )}
+            </BlockStack>
           </Card>
         </Layout.Section>
         
-        {/* Orders Table */}
-        <Layout.Section>
+        {/* Orders Table - Full Width */}
+        <Layout.Section fullWidth>
           <Card padding="0">
             <IndexTable
               resourceName={resourceName}
