@@ -874,6 +874,7 @@ export default function OrdersPage() {
     <Page
       title="Tour Orders Management"
       subtitle={`${orders.length} orders found`}
+      fullWidth
     >
       <Layout>
         {actionData?.message && (
