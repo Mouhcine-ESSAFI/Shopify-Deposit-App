@@ -226,7 +226,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const statusFilter = url.searchParams.get("status") || "";
   
   // Build query string for GraphQL
-  let query = "tag:deposit OR financial_status:partially_paid OR financial_status:paid";
+  let query = "";
   if (searchQuery) {
     query += ` AND (name:*${searchQuery}* OR email:*${searchQuery}*)`;
   }
